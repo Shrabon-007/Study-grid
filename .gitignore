@@ -1,0 +1,23 @@
+*.tar
+*.tar.*
+*.jar
+*.exe
+*.msi
+*.deb
+*.zip
+*.tgz
+*.log
+*.log.*
+*.sig
+
+# Backend local artifacts
+backend/node_modules/
+backend/.env
+backend/*.log
+
+# Frontend dependencies and build output
+node_modules/
+frontend/node_modules/
+frontend/dist/
+
+pkg/
