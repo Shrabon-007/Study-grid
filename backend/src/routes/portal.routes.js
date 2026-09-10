@@ -39,6 +39,9 @@ const {
   getTeacherCtMarksBySection,
   getTeacherStudentResults,
   saveTeacherCtMarksBySection,
+  getStudentAiCgpaContext,
+  saveStudentTermMarks,
+  evaluateStudentAiCgpa,
 } = require("../controllers/portal.controller");
 
 const router = express.Router();
@@ -65,6 +68,10 @@ router.put("/student/semester-cgpa", saveSemesterCgpa);
 router.get("/student/cumulative-cgpa", getStudentCumulativeCgpa);
 router.get("/student/ranking", getStudentRanking);
 router.get("/student/advisor", getStudentAssignedAdvisor);
+
+router.get("/student/ai-cgpa-context", getStudentAiCgpaContext);
+router.post("/student/term-marks", saveStudentTermMarks);
+router.post("/student/ai-cgpa-evaluate", evaluateStudentAiCgpa);
 router.get("/advisor/students", getAdvisorStudentsByBatch);
 router.get("/advisor/student-report", getAdvisorStudentReport);
 router.get("/advisor/performance-watchlist", getAdvisorPerformanceWatchlist);
