@@ -3,7 +3,6 @@ import { PortalLayout, ProtectedRoute } from "./components/ui";
 import { LoginPage, RegisterPage } from "./pages/AuthPages";
 import { DashboardPage, NoticesPage, SettingsPage } from "./pages/SharedPages";
 import { AttendancePage, CtMarksPage, CumulativeCgpaPage, RunningCgpaPage, SemesterCgpaPage, StudentCoursesPage } from "./pages/StudentPages";
-import { AiCgpaPredictorPage } from "./pages/AiCgpaPredictorPage";
 import { AdvisorAssignmentPage, AdvisorRankingPage, AdvisorStudentReportPage, AdvisorWatchlistPage, MessagesPage } from "./pages/AdminAdvisorPages";
 import { TeacherAttendancePage, TeacherCoursesPage, TeacherCtMarksPage, TeacherStudentResultsPage } from "./pages/TeacherPages";
 
@@ -36,7 +35,6 @@ export default function App() {
     <Route path="/student/ct-marks" element={<RolePage role="student"><CtMarksPage /></RolePage>} />
     <Route path="/student/semester-cgpa" element={<RolePage role="student"><SemesterCgpaPage /></RolePage>} />
     <Route path="/student/running-cgpa" element={<RolePage role="student"><RunningCgpaPage /></RolePage>} />
-    <Route path="/student/ai-cgpa" element={<RolePage role="student"><AiCgpaPredictorPage /></RolePage>} />
     <Route path="/student/cumulative-cgpa" element={<RolePage role="student"><CumulativeCgpaPage /></RolePage>} />
     <Route path="/student/notices" element={<RolePage role="student"><NoticesPage role="student" /></RolePage>} />
     <Route path="/student/messages" element={<RolePage role="student"><MessagesPage role="student" /></RolePage>} />
@@ -65,7 +63,6 @@ export default function App() {
     <Route path="/student-ct-marks.html" element={<LegacyRedirect to="/student/ct-marks" />} />
     <Route path="/student-semester-cgpa.html" element={<LegacyRedirect to="/student/semester-cgpa" />} />
     <Route path="/student-running-semester-cgpa.html" element={<LegacyRedirect to="/student/running-cgpa" />} />
-    <Route path="/student-ai-cgpa.html" element={<LegacyRedirect to="/student/ai-cgpa" />} />
     <Route path="/student-cumulative-cgpa.html" element={<LegacyRedirect to="/student/cumulative-cgpa" />} />
     <Route path="/student-notices.html" element={<LegacyRedirect to="/student/notices" />} />
     <Route path="/student-message-advisor.html" element={<LegacyRedirect to="/student/messages" />} />

@@ -28,7 +28,6 @@ export const NAV_ITEMS = {
     ["Dashboard", "/student/dashboard"], ["Courses", "/student/courses"],
     ["Attendance", "/student/attendance"], ["Marks", "/student/ct-marks"],
     ["CGPA", "/student/semester-cgpa"], ["Running CGPA", "/student/running-cgpa"],
-    ["AI CGPA Predictor", "/student/ai-cgpa"],
     ["Notices", "/student/notices"], ["Messages", "/student/messages"], ["Settings", "/student/settings"],
   ],
   advisor: [

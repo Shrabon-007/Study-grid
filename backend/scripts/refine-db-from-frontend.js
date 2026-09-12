@@ -17,7 +17,6 @@ const Notice = require("../src/models/notice.model");
 const AdvisorAssignment = require("../src/models/advisor-assignment.model");
 const Message = require("../src/models/message.model");
 const TeacherAttendanceSession = require("../src/models/teacher-attendance-session.model");
-const TermMark = require("../src/models/term-mark.model");
 
 const uri = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/academicradar";
 
@@ -137,7 +136,6 @@ async function run() {
     AdvisorAssignment,
     Message,
     TeacherAttendanceSession,
-    TermMark,
   ];
 
   for (const model of models) {
