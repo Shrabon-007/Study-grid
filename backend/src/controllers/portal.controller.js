@@ -2768,7 +2768,122 @@ const saveTeacherCtMarksBySection = async (req, res) => {
   }
 };
 
+const { analyzeCourseFeasibility, generateAiCoaching } = require("../services/ai.service");
+
+const getStudentAiSuggestions = async (req, res) => {
+  try {
+    const ctx = await withContext(req);
+    if (!ensureRole(res, ctx.user, ["student"])) return;
+    if (!ctx.student) {
+      return res.status(404).json({ success: false, message: "Student profile not found." });
+    }
+
+    const semesterLabel = normalize(req.query.semesterLabel || req.query.semester || "");
+
+    // 1. Get student's enrolled courses
+    const studentCourseQuery = { studentId: ctx.student._id };
+    if (semesterLabel) studentCourseQuery.semesterLabel = semesterLabel;
+
+    const studentCourses = await StudentCourse.find(studentCourseQuery).populate("courseId");
+    if (!studentCourses.length) {
+      return res.status(200).json({ success: true, data: { items: [] } });
+    }
+
+    // 2. Fetch corresponding attendance & CT marks for these courses
+    const courseIds = studentCourses.map((sc) => sc.courseId?._id).filter(Boolean);
+
+    const [attendanceRecords, ctRecords] = await Promise.all([
+      Attendance.find({
+        studentId: ctx.student._id,
+        courseId: { $in: courseIds },
+      }).lean(),
+      CtMark.find({
+        studentId: ctx.student._id,
+        courseId: { $in: courseIds },
+      }).lean(),
+    ]);
+
+    const attendanceMap = new Map();
+    attendanceRecords.forEach((att) => {
+      const key = `${att.courseId.toString()}_${att.semesterLabel}`;
+      attendanceMap.set(key, att);
+    });
+
+    const ctMap = new Map();
+    ctRecords.forEach((ct) => {
+      const key = `${ct.courseId.toString()}_${ct.semesterLabel}`;
+      ctMap.set(key, ct);
+    });
+
+    // 3. Process each course and analyze feasibility
+    const items = await Promise.all(
+      studentCourses.map(async (sc) => {
+        const course = sc.courseId;
+        if (!course) return null;
+
+        const key = `${course._id.toString()}_${sc.semesterLabel}`;
+        const att = attendanceMap.get(key);
+        const ct = ctMap.get(key);
+
+        // Extract published CT scores
+        let ctScores = [];
+        if (ct) {
+          const raw = [ct.ct1, ct.ct2, ct.ct3, ct.ct4];
+          const totalPublishedCt = Number(ct.totalCt || 4);
+          ctScores = raw.slice(0, totalPublishedCt).filter((val) => typeof val === "number" && val > 0);
+        }
+
+        // Attendance stats
+        const attended = att ? Number(att.attended || 0) : 0;
+        const classesHeld = att ? Number(att.classesHeld || 0) : 0;
+        const totalClasses = Number(course.totalClasses || 39);
+
+        // Run feasibility analysis (300 Marks Scheme: 60 CT best 3 of 4, 30 Attendance, 210 Final)
+        const analysis = analyzeCourseFeasibility({
+          course: {
+            code: course.code,
+            name: course.name,
+            credit: course.credit,
+            teacherName: course.teacherName,
+            totalClasses,
+          },
+          ctScores,
+          totalCt: 4,
+          attended,
+          classesHeld,
+          totalClasses,
+        });
+
+        // Add AI guidance (Gemini if key set, else heuristic)
+        const aiGuidance = await generateAiCoaching(analysis);
+
+        return {
+          id: sc._id,
+          semesterLabel: sc.semesterLabel,
+          ...analysis,
+          aiGuidance,
+        };
+      })
+    );
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        items: items.filter(Boolean),
+      },
+    });
+  } catch (error) {
+    console.error("Failed to generate AI suggestions:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Could not generate AI suggestions.",
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
+  getStudentAiSuggestions,
   getStudentCourses,
   addStudentCourse,
   updateStudentCourse,

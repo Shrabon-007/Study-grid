@@ -3,6 +3,7 @@ import { PortalLayout, ProtectedRoute } from "./components/ui";
 import { LoginPage, RegisterPage } from "./pages/AuthPages";
 import { DashboardPage, NoticesPage, SettingsPage } from "./pages/SharedPages";
 import { AttendancePage, CtMarksPage, CumulativeCgpaPage, RunningCgpaPage, SemesterCgpaPage, StudentCoursesPage } from "./pages/StudentPages";
+import { AiCgpaPredictorPage } from "./pages/AiCgpaPredictorPage";
 import { AdvisorAssignmentPage, AdvisorRankingPage, AdvisorStudentReportPage, AdvisorWatchlistPage, MessagesPage } from "./pages/AdminAdvisorPages";
 import { TeacherAttendancePage, TeacherCoursesPage, TeacherCtMarksPage, TeacherStudentResultsPage } from "./pages/TeacherPages";
 
@@ -33,6 +34,7 @@ export default function App() {
     <Route path="/student/courses" element={<RolePage role="student"><StudentCoursesPage /></RolePage>} />
     <Route path="/student/attendance" element={<RolePage role="student"><AttendancePage /></RolePage>} />
     <Route path="/student/ct-marks" element={<RolePage role="student"><CtMarksPage /></RolePage>} />
+    <Route path="/student/ai-predictor" element={<RolePage role="student"><AiCgpaPredictorPage /></RolePage>} />
     <Route path="/student/semester-cgpa" element={<RolePage role="student"><SemesterCgpaPage /></RolePage>} />
     <Route path="/student/running-cgpa" element={<RolePage role="student"><RunningCgpaPage /></RolePage>} />
     <Route path="/student/cumulative-cgpa" element={<RolePage role="student"><CumulativeCgpaPage /></RolePage>} />

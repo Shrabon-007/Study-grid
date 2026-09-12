@@ -11,6 +11,7 @@ const {
   saveStudentAttendance,
   getStudentCtMarks,
   saveStudentCtMarks,
+  getStudentAiSuggestions,
   getSemesterSetup,
   saveSemesterSetup,
   getSemesterCgpa,
@@ -56,6 +57,8 @@ router.put("/student/attendance", saveStudentAttendance);
 
 router.get("/student/ct-marks", getStudentCtMarks);
 router.put("/student/ct-marks", saveStudentCtMarks);
+
+router.get("/student/ai-suggestions", getStudentAiSuggestions);
 
 router.get("/student/semester-setup", getSemesterSetup);
 router.put("/student/semester-setup", saveSemesterSetup);
