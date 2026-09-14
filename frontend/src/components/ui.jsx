@@ -28,7 +28,7 @@ export function PortalLayout({ children }) {
     <header className="topbar">
       <div className="topbar-inner">
         <Link className="brand" to={DASHBOARD_PATHS[role]} onClick={() => setMenuOpen(false)}>
-          <span>Academic Radar</span><small>{ROLE_LABELS[role]} Portal</small>
+          <span>Study Grid</span><small>{ROLE_LABELS[role]} Portal</small>
         </Link>
         <div className="user-menu">
           <span className={`avatar avatar-${role}`}>{initials(session?.name)}</span>

@@ -65,3 +65,30 @@ small { display: block; color: #667085; font-size: .78rem; font-weight: 400; mar
   .topbar-inner { min-height: 62px; }.user-name, .logout-button { display: none; }.menu-toggle { display: inline-flex; }.nav-links { display: none; padding: .35rem 1rem .65rem; flex-direction: column; overflow: visible; }.nav-links.nav-open { display: flex; }.nav-link { padding: .75rem .5rem; border-bottom: 0; border-left: 3px solid transparent; }.nav-link.active { border-bottom: 0; border-left-color: #2774c9; background: #f1f6fd; }.mobile-logout { display: block; margin-top: .35rem; color: #9f1d16; background: #fff0ef; text-align: left; }.two-column, .split-panel { grid-template-columns: 1fr; }.form-grid, .form-grid-wide { grid-template-columns: 1fr; }.page-heading, .card-heading { align-items: stretch; flex-direction: column; }.page-actions { width: 100%; }.page-actions select { flex: 1; }.attendance-course { grid-template-columns: 1fr; }.attendance-slots { grid-template-columns: repeat(5, 1fr); }.definition-list { grid-template-columns: 1fr; }.card { border-radius: 11px; }.hero-card { border-radius: 12px; }.table-wrap { margin-left: -.2rem; width: calc(100% + .4rem); }
 }
 @media (max-width: 420px) { .auth-card { padding: 1.5rem 1.15rem; }.page { width: min(100% - 1.25rem, 1200px); }.brand { font-size: 1rem; }.attendance-slots { grid-template-columns: repeat(4, 1fr); }.action-grid { grid-template-columns: 1fr; } }
+
+.import-divider { display: flex; align-items: center; gap: .85rem; margin: 1.25rem 0; color: #667085; font-size: .82rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+.import-divider::before, .import-divider::after { content: ""; flex: 1; height: 1px; background: #d6e0ee; }
+
+.excel-import-zone { position: relative; display: flex; flex-direction: column; align-items: center; gap: .65rem; padding: clamp(1.5rem, 4vw, 2.5rem) 1.5rem; border: 2px dashed #b4c9e4; border-radius: 14px; background: #f7faff; color: #475467; text-align: center; cursor: pointer; transition: border-color .18s, background .18s, box-shadow .18s; }
+.excel-import-zone:hover { border-color: #6fa3e0; background: #eef5ff; }
+.excel-import-zone.dragging { border-color: #2774c9; background: #e0edff; box-shadow: 0 0 0 4px rgba(39, 116, 201, .12); }
+.excel-import-zone input[type="file"] { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.excel-import-zone .upload-icon { display: grid; width: 52px; height: 52px; place-items: center; border-radius: 50%; background: #deeaff; color: #1b5fb5; font-size: 1.5rem; font-weight: 800; }
+.excel-import-zone strong { color: #1b5fb5; font-size: .95rem; }
+.excel-import-zone small { color: #667085; font-size: .8rem; }
+
+.excel-file-info { display: flex; align-items: center; gap: .75rem; padding: .75rem 1rem; border: 1px solid #c7daf1; border-radius: 10px; background: #f0f6ff; }
+.excel-file-info .file-icon { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 8px; background: #d0e3ff; color: #174d9a; font-size: .72rem; font-weight: 800; }
+.excel-file-info .file-details { flex: 1; min-width: 0; }
+.excel-file-info .file-details strong { display: block; overflow: hidden; color: #1d2939; font-size: .88rem; text-overflow: ellipsis; white-space: nowrap; }
+.excel-file-info .file-details small { color: #667085; }
+.excel-file-info .file-remove { border: 0; padding: .3rem .5rem; color: #b42318; background: transparent; font-size: 1.1rem; font-weight: 700; cursor: pointer; }
+
+.excel-match-summary { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .25rem; }
+.match-badge { display: inline-flex; align-items: center; gap: .3rem; border-radius: 999px; padding: .3rem .7rem; font-size: .78rem; font-weight: 750; }
+.match-badge.matched { color: #067647; background: #dcfae6; }
+.match-badge.unmatched { color: #b42318; background: #ffebe9; }
+.match-badge.total { color: #155b9c; background: #e9f3ff; }
+
+.excel-unmatched-list { margin-top: .5rem; padding: .65rem .85rem; border: 1px solid #fecaca; border-radius: 8px; background: #fef3f2; font-size: .82rem; color: #b42318; line-height: 1.6; }
+

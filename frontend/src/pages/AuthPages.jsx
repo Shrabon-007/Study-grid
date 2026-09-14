@@ -25,7 +25,7 @@ export function LoginPage() {
       setSession(next); navigate(DASHBOARD_PATHS[next.role]);
     } catch (err) { setError(err.message); } finally { setBusy(false); }
   };
-  return <AuthFrame title="Welcome back" subtitle="Sign in to your Academic Radar portal.">
+  return <AuthFrame title="Welcome back" subtitle="Sign in to your Study Grid portal.">
     <form onSubmit={submit} className="form-stack">
       <Field label="Role"><select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })} required><option value="">Select role</option>{roles.map((role) => <option key={role} value={role}>{ROLE_LABELS[role]}</option>)}</select></Field>
       <Field label="Email"><input type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} placeholder="you@example.edu" required /></Field>
@@ -73,5 +73,5 @@ export function RegisterPage() {
   </AuthFrame>;
 }
 
-function AuthFrame({ title, subtitle, children }) { return <main className="auth-wrap"><section className="auth-card"><Link to="/login" className="auth-brand">Academic Radar</Link><h1 className="auth-title">{title}</h1><p className="auth-sub">{subtitle}</p>{children}</section></main>; }
+function AuthFrame({ title, subtitle, children }) { return <main className="auth-wrap"><section className="auth-card"><Link to="/login" className="auth-brand">Study Grid</Link><h1 className="auth-title">{title}</h1><p className="auth-sub">{subtitle}</p>{children}</section></main>; }
 function Field({ label, children }) { return <label className="form-group"><span>{label}</span>{children}</label>; }

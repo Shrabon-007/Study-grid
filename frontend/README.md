@@ -1,4 +1,4 @@
-# Academic Radar React frontend
+# Study Grid React frontend
 
 The static HTML frontend has been replaced by a React single-page application.
 
