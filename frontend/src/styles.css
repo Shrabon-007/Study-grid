@@ -92,3 +92,42 @@ small { display: block; color: #667085; font-size: .78rem; font-weight: 400; mar
 
 .excel-unmatched-list { margin-top: .5rem; padding: .65rem .85rem; border: 1px solid #fecaca; border-radius: 8px; background: #fef3f2; font-size: .82rem; color: #b42318; line-height: 1.6; }
 
+/* ─── Voice verification ─── */
+.ct-speak-btn { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; margin-left: .35rem; border: 1px solid rgba(255,255,255,.08); border-radius: 6px; background: rgba(21, 91, 180, .12); color: #1b5fb5; font-size: .82rem; cursor: pointer; transition: background .16s, transform .14s, box-shadow .16s; vertical-align: middle; line-height: 1; padding: 0; }
+.ct-speak-btn:hover { background: rgba(21, 91, 180, .22); transform: scale(1.12); }
+.ct-speak-btn.speaking { background: #1c61b2; color: #fff; box-shadow: 0 0 0 3px rgba(28, 97, 178, .2); animation: speak-glow 1.6s ease-in-out infinite; }
+@keyframes speak-glow { 0%, 100% { box-shadow: 0 0 0 3px rgba(28, 97, 178, .15); } 50% { box-shadow: 0 0 0 6px rgba(28, 97, 178, .25); } }
+
+.voice-active-row td { background: #e8f4fd !important; transition: background .25s ease; }
+@keyframes voice-pulse { 0%, 100% { background: #e8f4fd; } 50% { background: #d0eafb; } }
+.voice-active-row td { animation: voice-pulse 1.8s ease-in-out infinite; }
+
+.voice-verify-bar { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; margin-top: .75rem; padding: .75rem 1rem; border: 1px solid #c4d9f2; border-radius: 10px; background: linear-gradient(135deg, #f0f7ff, #e6f0fd); }
+.voice-verify-label { display: flex; align-items: center; gap: .4rem; color: #1b4f94; font-weight: 750; font-size: .88rem; white-space: nowrap; }
+.voice-verify-label .voice-icon { font-size: 1.1rem; }
+.voice-verify-controls { display: flex; gap: .35rem; }
+.voice-verify-btn { display: inline-flex; align-items: center; justify-content: center; min-width: 36px; height: 34px; border: 1px solid #b3cbe6; border-radius: 7px; padding: 0 .55rem; color: #1b5fb5; background: #fff; font-size: .9rem; font-weight: 700; cursor: pointer; transition: background .15s, border-color .15s, transform .12s; }
+.voice-verify-btn:hover { background: #e8f1fd; border-color: #7aade0; transform: translateY(-1px); }
+.voice-verify-btn:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+.voice-verify-btn.btn-stop { color: #b42318; border-color: #f0b8b3; }
+.voice-verify-btn.btn-stop:hover { background: #fff3f2; }
+.voice-speed-select { min-height: 34px; padding: .3rem .5rem; border: 1px solid #b3cbe6; border-radius: 7px; background: #fff; color: #1b5fb5; font-size: .78rem; font-weight: 700; cursor: pointer; outline: none; }
+.voice-speed-select:focus { border-color: #7aade0; box-shadow: 0 0 0 2px rgba(39, 116, 201, .12); }
+.voice-progress { display: flex; align-items: center; gap: .5rem; margin-left: auto; color: #475467; font-size: .82rem; font-weight: 650; }
+.voice-progress progress { width: 110px; height: 7px; border: 0; border-radius: 999px; overflow: hidden; }
+.voice-progress progress::-webkit-progress-bar { background: #d6e5f7; border-radius: 999px; }
+.voice-progress progress::-webkit-progress-value { background: linear-gradient(90deg, #2774c9, #1b9aef); border-radius: 999px; }
+.voice-progress progress::-moz-progress-bar { background: linear-gradient(90deg, #2774c9, #1b9aef); border-radius: 999px; }
+
+.voice-complete { display: flex; flex-wrap: wrap; align-items: center; gap: .55rem; margin-top: .75rem; padding: .8rem 1rem; border: 1px solid #a3dbb8; border-radius: 10px; background: linear-gradient(135deg, #eefbf3, #dcf5e5); color: #067647; font-weight: 700; font-size: .88rem; }
+.voice-complete .voice-icon { font-size: 1.15rem; }
+.voice-complete .voice-missing { color: #b45309; font-weight: 650; }
+.voice-complete .btn-dismiss { border: 1px solid #a3dbb8; border-radius: 6px; padding: .25rem .6rem; margin-left: auto; background: #fff; color: #067647; font-size: .78rem; font-weight: 700; cursor: pointer; }
+.voice-complete .btn-dismiss:hover { background: #dcf5e5; }
+
+@media (max-width: 760px) {
+  .voice-verify-bar { flex-direction: column; align-items: stretch; }
+  .voice-progress { margin-left: 0; }
+  .voice-verify-controls { justify-content: center; }
+}
+

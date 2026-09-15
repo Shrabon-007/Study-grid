@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 import { api, dataItems } from "../lib/api";
 import { SEMESTERS } from "../lib/constants";
@@ -802,6 +802,21 @@ export function TeacherStudentResultsPage() {
   const [sortBy, setSortBy] = useState("studentId");
   const { toast, show, close } = useToast();
 
+  /* ─── Voice verification state ─── */
+  const [voice, setVoice] = useState({
+    ctIndex: -1,       // which CT column (0-based), -1 = inactive
+    studentIdx: 0,     // current student being spoken
+    status: "idle",    // idle | speaking | paused | completed
+  });
+  const [speechSpeed, setSpeechSpeed] = useState(0.82);
+  const voiceRef = useRef(voice);
+  voiceRef.current = voice;
+
+  /* Cancel any ongoing speech when results change or component unmounts */
+  useEffect(() => {
+    return () => { window.speechSynthesis?.cancel(); };
+  }, [results]);
+
   useEffect(() => {
     loadTeacherCourses()
       .then((items) => {
@@ -834,6 +849,7 @@ export function TeacherStudentResultsPage() {
       });
       const response = await api(`/portal/teacher/student-results?${query}`);
       setResults(response.data || null);
+      setVoice({ ctIndex: -1, studentIdx: 0, status: "idle" });
     } catch (error) {
       show(error.message, "error");
       setResults(null);
@@ -872,10 +888,39 @@ export function TeacherStudentResultsPage() {
     });
   });
 
-  const ctColumns = Array.from(
-    { length: Number(results?.ctPolicy?.totalCt || 0) },
-    (_, index) => `CT ${index + 1}`,
-  );
+  const totalCt = Number(results?.ctPolicy?.totalCt || 0);
+
+  /* Voice verification callbacks */
+  const startVerification = useCallback((ctIdx) => {
+    window.speechSynthesis?.cancel();
+    setVoice({ ctIndex: ctIdx, studentIdx: 0, status: "speaking" });
+  }, []);
+
+  const handleSpeakerClick = useCallback((ctIdx) => {
+    const v = voiceRef.current;
+    // If clicking same CT that's already active & speaking/paused, don't restart
+    if (v.ctIndex === ctIdx && (v.status === "speaking" || v.status === "paused")) return;
+    startVerification(ctIdx);
+  }, [startVerification]);
+
+  /* Build column headers with 🔊 buttons for CT columns */
+  const ctColumns = Array.from({ length: totalCt }, (_, index) => ({
+    key: `ct-${index}`,
+    label: (
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 0 }}>
+        CT {index + 1}
+        <button
+          type="button"
+          className={`ct-speak-btn${voice.ctIndex === index && voice.status === "speaking" ? " speaking" : ""}`}
+          onClick={(e) => { e.stopPropagation(); handleSpeakerClick(index); }}
+          title={`Verify CT ${index + 1} marks by voice`}
+        >
+          🔊
+        </button>
+      </span>
+    ),
+  }));
+
   const columns = [
     "Student ID",
     "Student",
@@ -988,12 +1033,33 @@ export function TeacherStudentResultsPage() {
                 <small>CT policy: {results.ctPolicy?.label}</small>
               </div>
             </div>
+            {/* Voice verification control bar */}
+            {voice.ctIndex >= 0 && voice.status !== "idle" && (
+              <CtVoiceVerifier
+                students={sortedStudents}
+                ctIndex={voice.ctIndex}
+                voice={voice}
+                setVoice={setVoice}
+                voiceRef={voiceRef}
+                speechSpeed={speechSpeed}
+                setSpeechSpeed={setSpeechSpeed}
+              />
+            )}
             <DataTable
               columns={columns}
               empty="No students are enrolled in this course and section yet."
             >
-              {sortedStudents.map((student) => (
-                <tr key={student.studentId}>
+              {sortedStudents.map((student, rowIdx) => (
+                <tr
+                  key={student.studentId}
+                  className={
+                    voice.ctIndex >= 0 &&
+                    voice.status === "speaking" &&
+                    rowIdx === voice.studentIdx
+                      ? "voice-active-row"
+                      : ""
+                  }
+                >
                   <td>
                     <strong>{student.studentId}</strong>
                   </td>
@@ -1022,6 +1088,184 @@ export function TeacherStudentResultsPage() {
       )}
       <Toast {...toast} onClose={close} />
     </>
+  );
+}
+
+/* ─── Voice Verification Engine ─── */
+
+function extractRollNumber(studentId) {
+  // "2604003" → 3, "2604010" → 10, "2604100" → 100
+  const digits = String(studentId || "").replace(/[^0-9]/g, "");
+  // Take trailing digits and strip leading zeros
+  const match = digits.match(/(\d{1,3})$/);
+  if (!match) return studentId;
+  return String(Number(match[1]));
+}
+
+function markToSpeech(mark) {
+  if (mark === null || mark === undefined || mark === "") return "missing";
+  const num = Number(mark);
+  if (!Number.isFinite(num) && String(mark).trim() === "") return "missing";
+  if (!Number.isFinite(num)) return "missing";
+  return String(num);
+}
+
+function CtVoiceVerifier({ students, ctIndex, voice, setVoice, voiceRef, speechSpeed, setSpeechSpeed }) {
+  const timerRef = useRef(null);
+  const isMounted = useRef(true);
+
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+      clearTimeout(timerRef.current);
+      window.speechSynthesis?.cancel();
+    };
+  }, []);
+
+  /* Speak a single student, then advance */
+  const speakStudent = useCallback((idx) => {
+    if (!isMounted.current) return;
+    if (idx >= students.length) {
+      setVoice((v) => ({ ...v, status: "completed", studentIdx: students.length }));
+      return;
+    }
+    const student = students[idx];
+    const rawMark = student.ct?.marks?.[ctIndex];
+    const markText = markToSpeech(rawMark);
+    const rollNum = extractRollNumber(student.studentId);
+    const text = `ID ${rollNum}, mark ${markText}.`;
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = speechSpeed;
+    utterance.pitch = 1.0;
+    utterance.onend = () => {
+      if (!isMounted.current) return;
+      // Pause between students so teacher can check
+      timerRef.current = setTimeout(() => {
+        if (!isMounted.current) return;
+        const v = voiceRef.current;
+        if (v.status !== "speaking") return; // paused or stopped
+        const next = idx + 1;
+        setVoice((prev) => ({ ...prev, studentIdx: next }));
+        speakStudent(next);
+      }, 900);
+    };
+    utterance.onerror = (e) => {
+      if (e.error === "canceled" || e.error === "interrupted") return;
+      // On error, try to continue
+      if (isMounted.current) {
+        const next = idx + 1;
+        setVoice((prev) => ({ ...prev, studentIdx: next }));
+        speakStudent(next);
+      }
+    };
+
+    setVoice((prev) => ({ ...prev, studentIdx: idx, status: "speaking" }));
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utterance);
+  }, [students, ctIndex, setVoice, voiceRef]);
+
+  /* Start / restart when ctIndex or status transitions to speaking at student 0 */
+  useEffect(() => {
+    if (voice.status === "speaking" && voice.studentIdx === 0) {
+      speakStudent(0);
+    }
+  }, [voice.ctIndex]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handlePause = () => {
+    window.speechSynthesis?.pause();
+    clearTimeout(timerRef.current);
+    setVoice((v) => ({ ...v, status: "paused" }));
+  };
+
+  const handleResume = () => {
+    setVoice((v) => ({ ...v, status: "speaking" }));
+    if (window.speechSynthesis?.paused) {
+      window.speechSynthesis.resume();
+    } else {
+      // If speech already ended while paused, continue from current student
+      speakStudent(voiceRef.current.studentIdx);
+    }
+  };
+
+  const handleNext = () => {
+    window.speechSynthesis?.cancel();
+    clearTimeout(timerRef.current);
+    const next = Math.min(voice.studentIdx + 1, students.length);
+    if (next >= students.length) {
+      setVoice((v) => ({ ...v, status: "completed", studentIdx: students.length }));
+    } else {
+      setVoice((v) => ({ ...v, studentIdx: next, status: "speaking" }));
+      speakStudent(next);
+    }
+  };
+
+  const handleStop = () => {
+    window.speechSynthesis?.cancel();
+    clearTimeout(timerRef.current);
+    setVoice({ ctIndex: -1, studentIdx: 0, status: "idle" });
+  };
+
+  const handleDismiss = () => {
+    setVoice({ ctIndex: -1, studentIdx: 0, status: "idle" });
+  };
+
+  /* Completion view */
+  if (voice.status === "completed") {
+    const missingCount = students.filter((s) => {
+      const m = s.ct?.marks?.[ctIndex];
+      return m === null || m === undefined || m === "" || (typeof m === "number" && !Number.isFinite(m));
+    }).length;
+    return (
+      <div className="voice-complete">
+        <span className="voice-icon">✅</span>
+        <span>
+          CT-{ctIndex + 1} Verification Completed — {students.length} / {students.length} students checked
+        </span>
+        {missingCount > 0 && (
+          <span className="voice-missing">
+            ⚠ {missingCount} missing mark{missingCount > 1 ? "s" : ""}
+          </span>
+        )}
+        <button className="btn-dismiss" onClick={handleDismiss}>Dismiss</button>
+      </div>
+    );
+  }
+
+  /* Active verification bar */
+  const progress = Math.min(voice.studentIdx + 1, students.length);
+  return (
+    <div className="voice-verify-bar">
+      <div className="voice-verify-label">
+        <span className="voice-icon">🔊</span>
+        <span>Verifying CT-{ctIndex + 1}</span>
+      </div>
+      <div className="voice-verify-controls">
+        {voice.status === "paused" ? (
+          <button className="voice-verify-btn" onClick={handleResume} title="Resume">▶</button>
+        ) : (
+          <button className="voice-verify-btn" onClick={handlePause} title="Pause">⏸</button>
+        )}
+        <button className="voice-verify-btn" onClick={handleNext} title="Next student">⏭</button>
+        <button className="voice-verify-btn btn-stop" onClick={handleStop} title="Stop verification">⏹</button>
+        <select
+          className="voice-speed-select"
+          value={speechSpeed}
+          onChange={(e) => setSpeechSpeed(Number(e.target.value))}
+          title="Speech speed"
+        >
+          <option value={0.6}>Slow</option>
+          <option value={0.82}>Normal</option>
+          <option value={1.1}>Fast</option>
+          <option value={1.5}>Very Fast</option>
+        </select>
+      </div>
+      <div className="voice-progress">
+        <progress value={progress} max={students.length} />
+        <span>{progress} / {students.length}</span>
+      </div>
+    </div>
   );
 }
 

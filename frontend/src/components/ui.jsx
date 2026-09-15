@@ -58,7 +58,11 @@ export function NoticeBadge({ priority = "normal" }) { return <span className={`
 export function RiskBadge({ value = "—" }) { return <span className={`badge risk-${String(value).toLowerCase()}`}>{value}</span>; }
 
 export function DataTable({ columns, children, empty, className = "" }) {
-  return <div className={`table-wrap ${className}`}><table><thead><tr>{columns.map((column) => <th key={column}>{column}</th>)}</tr></thead><tbody>{children || <tr><td colSpan={columns.length}><EmptyState>{empty}</EmptyState></td></tr>}</tbody></table></div>;
+  return <div className={`table-wrap ${className}`}><table><thead><tr>{columns.map((column) => {
+    const key = typeof column === "string" ? column : column.key;
+    const content = typeof column === "string" ? column : column.label;
+    return <th key={key}>{content}</th>;
+  })}</tr></thead><tbody>{children || <tr><td colSpan={columns.length}><EmptyState>{empty}</EmptyState></td></tr>}</tbody></table></div>;
 }
 
 export function Toast({ message, type = "success", onClose }) {
