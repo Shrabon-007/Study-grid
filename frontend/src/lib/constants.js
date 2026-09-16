@@ -25,18 +25,28 @@ export const NAV_ITEMS = {
   student: [
     ["Dashboard", "/student/dashboard"], ["Courses", "/student/courses"],
     ["Attendance", "/student/attendance"], ["Marks", "/student/ct-marks"],
+    ["AI Predictor", "/student/ai-predictor"],
+    ["Assistant", "/student/assistant"],
     ["CGPA", "/student/semester-cgpa"], ["Running CGPA", "/student/running-cgpa"],
     ["Notices", "/student/notices"], ["Messages", "/student/messages"], ["Settings", "/student/settings"],
+  ],
+  advisor: [
+    ["Dashboard", "/advisor/dashboard"], ["Student ranking", "/advisor/ranking"],
+    ["Watchlist", "/advisor/watchlist"], ["Messages", "/advisor/messages"],
+    ["Notices", "/advisor/notices"], ["Settings", "/advisor/settings"],
+    ["Assistant", "/advisor/assistant"],
   ],
   admin: [
     ["Dashboard", "/admin/dashboard"], ["Accounts", "/admin/accounts"], ["Teacher management", "/admin/assign-advisor"],
     ["Notices", "/admin/notices"], ["Settings", "/admin/settings"],
+    ["Assistant", "/admin/assistant"],
   ],
   teacher: [
     ["Dashboard", "/teacher/dashboard"], ["Courses", "/teacher/courses"],
     ["Attendance", "/teacher/attendance"], ["CT marks", "/teacher/ct-marks"],
     ["Student results", "/teacher/student-results"],
     ["Notices", "/teacher/notices"], ["Settings", "/teacher/settings"],
+    ["Assistant", "/teacher/assistant"],
   ],
 };
 

@@ -3005,6 +3005,183 @@ const saveTeacherCtMarksBySection = async (req, res) => {
   }
 };
 
+const { analyzeCourseFeasibility, generateAiCoaching, generateGroundedChatAnswer } = require("../services/ai.service");
+
+const getGroundedChat = async (req, res) => {
+  try {
+    const ctx = await withContext(req);
+    if (!ctx.user) return res.status(401).json({ success: false, message: "Unauthorized." });
+
+    const question = normalize(req.body.question);
+    if (!question) return res.status(400).json({ success: false, message: "question is required." });
+    if (question.length > 1000) return res.status(400).json({ success: false, message: "question is too long." });
+
+    const role = ctx.user.role;
+    const context = {
+      role,
+      profile: { name: ctx.user.name, email: ctx.user.email },
+      courses: [],
+      attendance: [],
+      ctMarks: [],
+      cgpa: [],
+      notices: [],
+      counts: { users: 0, students: 0, teachers: 0, admins: 0, courses: 0 },
+    };
+
+    if (role === "student" && ctx.student) {
+      const [courseRows, attendanceRows, ctRows, cgpaRows] = await Promise.all([
+        StudentCourse.find({ studentId: ctx.student._id }).populate("courseId", "code name batch credit courseType totalClasses semesterLabel").limit(50).lean(),
+        Attendance.find({ studentId: ctx.student._id, publishedByTeacher: true }).populate("courseId", "code name").limit(50).lean(),
+        CtMark.find({ studentId: ctx.student._id, publishedByTeacher: true }).populate("courseId", "code name").limit(50).lean(),
+        SemesterCgpa.find({ studentId: ctx.student._id }).select("semesterLabel cgpa trend").limit(20).lean(),
+      ]);
+      context.profile.studentId = ctx.student.studentId;
+      context.profile.batch = ctx.student.batch;
+      context.courses = courseRows.map((row) => ({ code: row.courseId?.code, name: row.courseId?.name, batch: row.courseId?.batch, credit: row.courseId?.credit, courseType: row.courseId?.courseType, semesterLabel: row.semesterLabel }));
+      context.attendance = attendanceRows.map((row) => ({ courseCode: row.courseId?.code, semesterLabel: row.semesterLabel, percentage: row.percentage, attended: row.attended, classesHeld: row.classesHeld }));
+      context.ctMarks = ctRows.map((row) => ({ courseCode: row.courseId?.code, semesterLabel: row.semesterLabel, total: row.total, maxMarks: row.maxMarks, performance: row.performance }));
+      context.cgpa = cgpaRows;
+      const attendanceByCourse = new Map(context.attendance.map((item) => [`${item.courseCode}__${item.semesterLabel}`, item]));
+      const ctByCourse = new Map(context.ctMarks.map((item) => [`${item.courseCode}__${item.semesterLabel}`, item]));
+      context.coursePerformance = context.courses.map((course) => {
+        const key = `${course.code}__${course.semesterLabel}`;
+        return {
+          ...course,
+          attendance: attendanceByCourse.get(key) || null,
+          ctMarks: ctByCourse.get(key) || null,
+        };
+      });
+    } else if (role === "teacher" && ctx.teacher) {
+      const [courses, attendance, ctMarks] = await Promise.all([
+        Course.find({ teacherId: ctx.teacher._id }).select("code name batch semesterLabel").limit(100).lean(),
+        Attendance.find({ teacherId: ctx.teacher._id }).select("courseId batch semesterLabel percentage").limit(100).lean(),
+        CtMark.find({ teacherId: ctx.teacher._id }).select("courseId batch semesterLabel total maxMarks performance").limit(100).lean(),
+      ]);
+      context.profile.teacherId = ctx.teacher.teacherId;
+      context.profile.department = ctx.teacher.department;
+      context.courses = courses;
+      context.attendance = attendance;
+      context.ctMarks = ctMarks;
+    } else if (role === "advisor" && ctx.advisor) {
+      const assignments = await AdvisorAssignment.find({ advisorId: ctx.advisor._id, status: "assigned" }).select("batch startSerial endSerial advisorName").limit(100).lean();
+      context.profile.department = ctx.advisor.department;
+      context.assignments = assignments;
+    } else if (role === "admin") {
+      const [users, students, teachers, admins, courses] = await Promise.all([
+        User.countDocuments(), Student.countDocuments(), Teacher.countDocuments(), Admin.countDocuments(), Course.countDocuments(),
+      ]);
+      context.counts = { users, students, teachers, admins, courses };
+    }
+
+    const noticeTargets = role === "student" ? ["students", "students_advisors"] : role === "advisor" ? ["advisors", "students_advisors"] : ["students", "advisors", "students_advisors"];
+    context.notices = await Notice.find({ target: { $in: noticeTargets }, status: { $ne: "archived" } }).select("title priority publishedAt batch courseId").sort({ publishedAt: -1 }).limit(30).lean();
+
+    const result = await generateGroundedChatAnswer(question, context);
+    return res.status(200).json({ success: true, data: { question, ...result } });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Could not answer your question.", error: error.message });
+  }
+};
+
+const getStudentAiSuggestions = async (req, res) => {
+  try {
+    const ctx = await withContext(req);
+    if (!ensureRole(res, ctx.user, ["student"])) return;
+    if (!ctx.student) {
+      return res.status(404).json({ success: false, message: "Student profile not found." });
+    }
+
+    const semesterLabel = normalize(req.query.semesterLabel || req.query.semester || "");
+
+    const studentCourseQuery = { studentId: ctx.student._id };
+    if (semesterLabel) studentCourseQuery.semesterLabel = semesterLabel;
+
+    const studentCourses = await StudentCourse.find(studentCourseQuery).populate("courseId");
+    if (!studentCourses.length) {
+      return res.status(200).json({ success: true, data: { items: [] } });
+    }
+
+    const courseIds = studentCourses.map((sc) => sc.courseId?._id).filter(Boolean);
+
+    const [attendanceRecords, ctRecords] = await Promise.all([
+      Attendance.find({ studentId: ctx.student._id, courseId: { $in: courseIds } }).lean(),
+      CtMark.find({ studentId: ctx.student._id, courseId: { $in: courseIds } }).lean(),
+    ]);
+
+    const attendanceMap = new Map();
+    attendanceRecords.forEach((att) => {
+      const key = `${att.courseId.toString()}_${att.semesterLabel}`;
+      attendanceMap.set(key, att);
+    });
+
+    const ctMap = new Map();
+    ctRecords.forEach((ct) => {
+      const key = `${ct.courseId.toString()}_${ct.semesterLabel}`;
+      ctMap.set(key, ct);
+    });
+
+    const items = await Promise.all(
+      studentCourses.map(async (sc) => {
+        const course = sc.courseId;
+        if (!course) return null;
+
+        const key = `${course._id.toString()}_${sc.semesterLabel}`;
+        const att = attendanceMap.get(key);
+        const ct = ctMap.get(key);
+
+        let ctScores = [];
+        if (ct) {
+          const raw = [ct.ct1, ct.ct2, ct.ct3, ct.ct4];
+          const totalPublishedCt = Number(ct.totalCt || 4);
+          ctScores = raw.slice(0, totalPublishedCt).filter((val) => typeof val === "number" && val > 0);
+        }
+
+        const attended = att ? Number(att.attended || 0) : 0;
+        const classesHeld = att ? Number(att.classesHeld || 0) : 0;
+        const totalClasses = Number(course.totalClasses || 39);
+
+        const analysis = analyzeCourseFeasibility({
+          course: {
+            code: course.code,
+            name: course.name,
+            credit: course.credit,
+            teacherName: course.teacherName,
+            totalClasses,
+          },
+          ctScores,
+          totalCt: 4,
+          attended,
+          classesHeld,
+          totalClasses,
+        });
+
+        const aiGuidance = await generateAiCoaching(analysis);
+
+        return {
+          id: sc._id,
+          semesterLabel: sc.semesterLabel,
+          ...analysis,
+          aiGuidance,
+        };
+      })
+    );
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        items: items.filter(Boolean),
+      },
+    });
+  } catch (error) {
+    console.error("Failed to generate AI suggestions:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Could not generate AI suggestions.",
+      error: error.message,
+    });
+  }
+};
+
 /* Toggle a teacher's isAdvisor status (admin only) */
 const toggleTeacherAdvisor = async (req, res) => {
   try {
@@ -3156,6 +3333,8 @@ const deleteAdminAccount = async (req, res) => {
 };
 
 module.exports = {
+  getStudentAiSuggestions,
+  getGroundedChat,
   getStudentCourses,
   addStudentCourse,
   updateStudentCourse,

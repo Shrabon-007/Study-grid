@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, dataItems } from "../lib/api";
 import { SEMESTERS } from "../lib/constants";
-import { courseFromLink, gradePoint } from "../lib/helpers";
+import { courseFromLink } from "../lib/helpers";
 import {
   Card,
   DataTable,
@@ -17,6 +17,25 @@ const normalizeCourses = (items) =>
     .map(courseFromLink)
     .filter((course) => course.code);
 const courseKey = (course) => `${course.semesterLabel}__${course.code}`;
+const GRADE_OPTIONS = [
+  ["", "Select grade"],
+  ["A+", "A+ (4.00)"],
+  ["A", "A (3.75)"],
+  ["A-", "A- (3.50)"],
+  ["B+", "B+ (3.25)"],
+  ["B", "B (3.00)"],
+  ["B-", "B- (2.75)"],
+  ["C+", "C+ (2.50)"],
+  ["C", "C (2.25)"],
+  ["D", "D (2.00)"],
+  ["F", "F (0.00)"],
+];
+const GRADE_POINTS = Object.fromEntries(
+  GRADE_OPTIONS.filter(([grade]) => grade).map(([grade, label]) => [
+    grade,
+    Number(label.match(/\(([\d.]+)\)/)?.[1] || 0),
+  ]),
+);
 
 export function StudentCoursesPage() {
   const [courses, setCourses] = useState([]);
@@ -554,7 +573,7 @@ export function RunningCgpaPage() {
         setCourses(all);
         const initial = all
           .filter((course) => course.semesterLabel === semester)
-          .map((course) => ({ ...course, mark: "" }));
+          .map((course) => ({ ...course, grade: "" }));
         setRows(initial);
       })
       .catch((error) => show(error.message, "error"))
@@ -564,17 +583,19 @@ export function RunningCgpaPage() {
     setRows(
       courses
         .filter((course) => course.semesterLabel === semester)
-        .map((course) => ({ ...course, mark: "" })),
+        .map((course) => ({ ...course, grade: "" })),
     );
   }, [semester]);
   const weighted = useMemo(() => {
-    const valid = rows.filter((row) => Number(row.credit) > 0);
+    const valid = rows.filter(
+      (row) => Number(row.credit) > 0 && row.grade && GRADE_POINTS[row.grade] !== undefined,
+    );
     const credits = valid.reduce((sum, row) => sum + Number(row.credit), 0);
     return {
       credits,
       cgpa: credits
         ? valid.reduce(
-            (sum, row) => sum + gradePoint(row.mark) * Number(row.credit),
+            (sum, row) =>             sum + GRADE_POINTS[row.grade] * Number(row.credit),
             0,
           ) / credits
         : 0,
@@ -582,8 +603,10 @@ export function RunningCgpaPage() {
   }, [rows]);
   const save = async (event) => {
     event.preventDefault();
-    if (!weighted.credits)
-      return show("Add a course with positive credit first.", "error");
+    if (!rows.length) return show("No courses are available for this semester.", "error");
+    if (weighted.credits < rows.reduce((sum, row) => sum + Number(row.credit), 0)) {
+      return show("Enter a grade for every course before saving.", "error");
+    }
     try {
       await api("/portal/student/semester-cgpa", {
         method: "PUT",
@@ -608,7 +631,7 @@ export function RunningCgpaPage() {
     <>
       <PageTitle
         title="Running semester CGPA calculator"
-        subtitle="Estimate CGPA from course marks before the official result is published."
+        subtitle="Enter the grade received in each database-listed course to calculate your semester CGPA."
       />
       {loading ? (
         <Spinner />
@@ -630,75 +653,36 @@ export function RunningCgpaPage() {
               </label>
             </div>
             <DataTable
-              columns={["Course", "Credit", "Mark (%)", "Grade point", ""]}
+              columns={["Course", "Credit", "Grade", "Grade point"]}
               empty="No courses are available for this semester."
             >
               {rows.map((row, index) => (
                 <tr key={`${row.code}-${index}`}>
                   <td>
-                    <input
-                      className="table-input"
-                      value={row.name}
-                      onChange={(event) =>
-                        updateRow(index, { name: event.target.value })
-                      }
-                    />
+                    <strong>{row.code}</strong>
+                    <small>{row.name}</small>
                   </td>
                   <td>
-                    <input
-                      className="table-input"
-                      type="number"
-                      min="0"
-                      step=".25"
-                      value={row.credit}
-                      onChange={(event) =>
-                        updateRow(index, { credit: event.target.value })
-                      }
-                    />
+                    {row.credit}
                   </td>
                   <td>
-                    <input
-                      className="table-input"
-                      type="number"
-                      min="0"
-                      max="100"
-                      value={row.mark}
+                    <select
+                      value={row.grade}
                       onChange={(event) =>
-                        updateRow(index, { mark: event.target.value })
-                      }
-                    />
-                  </td>
-                  <td>{gradePoint(row.mark).toFixed(2)}</td>
-                  <td>
-                    <button
-                      type="button"
-                      className="text-button danger-text"
-                      onClick={() =>
-                        setRows(
-                          rows.filter((_, position) => position !== index),
-                        )
+                        updateRow(index, { grade: event.target.value })
                       }
                     >
-                      Remove
-                    </button>
+                      {GRADE_OPTIONS.map(([value, label]) => (
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
                   </td>
+                  <td>{row.grade ? GRADE_POINTS[row.grade].toFixed(2) : "—"}</td>
                 </tr>
               ))}
             </DataTable>
-            <div className="button-row space-top">
-              <button
-                type="button"
-                className="btn btn-outline"
-                onClick={() =>
-                  setRows([
-                    ...rows,
-                    { code: "CUSTOM", name: "New course", credit: 3, mark: "" },
-                  ])
-                }
-              >
-                Add course row
-              </button>
-            </div>
             <label className="form-group space-top">
               <span>Optional note</span>
               <textarea
