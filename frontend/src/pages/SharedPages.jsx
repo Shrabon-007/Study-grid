@@ -37,22 +37,12 @@ const dashboardActions = {
       "MS",
     ],
   ],
-  advisor: [
-    ["Student ranking", "Review assigned students", "/advisor/ranking", "RK"],
-    [
-      "Watchlist",
-      "Follow up with at-risk students",
-      "/advisor/watchlist",
-      "WL",
-    ],
-    ["Messages", "Reply to student messages", "/advisor/messages", "MS"],
-  ],
   admin: [
     [
-      "Assign advisor",
-      "Assign an advisor to a student range",
+      "Teacher management",
+      "Manage teacher advisor status and student assignments",
       "/admin/assign-advisor",
-      "AS",
+      "TM",
     ],
     ["Post notice", "Share an academic notice", "/admin/notices", "NT"],
   ],
@@ -79,6 +69,13 @@ const dashboardActions = {
   ],
 };
 
+/* Extra actions shown only for teachers with advisor access */
+const advisorActions = [
+  ["Student ranking", "Review assigned students by CGPA", "/teacher/advisor-ranking", "RK"],
+  ["Watchlist", "Follow up with at-risk students", "/teacher/advisor-watchlist", "WL"],
+  ["Advisor messages", "Reply to student messages", "/teacher/advisor-messages", "MS"],
+];
+
 export function DashboardPage({ role }) {
   const { session } = useAuth();
   const [notices, setNotices] = useState([]);
@@ -94,10 +91,8 @@ export function DashboardPage({ role }) {
     role === "student"
       ? `${profile.department || "Department"} · Batch ${profile.batch || "—"}`
       : role === "teacher"
-        ? `${profile.department || "Department"} · ${profile.teacherId || "Teacher"}`
-        : role === "advisor"
-          ? `${profile.department || "Department"} · Advisor ${profile.advisorId || ""}`
-          : "Manage Study Grid operations";
+        ? `${profile.department || "Department"} · ${profile.teacherId || "Teacher"}${profile.isAdvisor ? " · Advisor" : ""}`
+        : "Manage Study Grid operations";
   return (
     <>
       <section className="hero-card">
@@ -113,6 +108,16 @@ export function DashboardPage({ role }) {
       <PageTitle title="Quick actions" subtitle="Choose a task to continue." />
       <section className="action-grid">
         {dashboardActions[role].map(([title, body, to, symbol]) => (
+          <Link key={to} className="action-card" to={to}>
+            <span className="action-icon">{symbol}</span>
+            <h2>{title}</h2>
+            <p>{body}</p>
+            <span className="action-link">
+              Open <span aria-hidden>→</span>
+            </span>
+          </Link>
+        ))}
+        {role === "teacher" && profile.isAdvisor && advisorActions.map(([title, body, to, symbol]) => (
           <Link key={to} className="action-card" to={to}>
             <span className="action-icon">{symbol}</span>
             <h2>{title}</h2>
@@ -159,6 +164,7 @@ export function DashboardPage({ role }) {
 
 export function NoticesPage({ role, admin = false }) {
   const [notices, setNotices] = useState([]);
+  const [courses, setCourses] = useState([]);
   const [selected, setSelected] = useState(null);
   const [loading, setLoading] = useState(true);
   const { toast, show, close } = useToast();
@@ -167,6 +173,7 @@ export function NoticesPage({ role, admin = false }) {
     target: "all",
     priority: "normal",
     content: "",
+    courseId: "",
   });
   const load = () => {
     setLoading(true);
@@ -180,12 +187,19 @@ export function NoticesPage({ role, admin = false }) {
       .finally(() => setLoading(false));
   };
   useEffect(load, []);
+  useEffect(() => {
+    if (role !== "teacher") return;
+    api("/portal/teacher/courses")
+      .then((response) => setCourses(dataItems(response)))
+      .catch((error) => show(error.message, "error"));
+  }, [role]);
   const submit = async (event) => {
     event.preventDefault();
     try {
-      await api("/portal/admin/notices", { method: "POST", body: form });
-      setForm({ title: "", target: "all", priority: "normal", content: "" });
-      show("Notice published.");
+      const endpoint = admin ? "/portal/admin/notices" : "/portal/teacher/notices";
+      await api(endpoint, { method: "POST", body: form });
+      setForm({ title: "", target: "all", priority: "normal", content: "", courseId: "" });
+      show(admin ? "Notice published." : "Course notice published.");
       load();
     } catch (error) {
       show(error.message, "error");
@@ -201,9 +215,9 @@ export function NoticesPage({ role, admin = false }) {
             : "Open a notice to see its complete details."
         }
       />
-      {admin && (
+      {(admin || role === "teacher") && (
         <Card className="space-bottom">
-          <h2>Create and send notice</h2>
+          <h2>{admin ? "Create and send notice" : "Send course notice"}</h2>
           <form onSubmit={submit} className="form-grid form-grid-wide">
             <label className="form-group">
               <span>Title</span>
@@ -216,20 +230,38 @@ export function NoticesPage({ role, admin = false }) {
                 placeholder="Advising session schedule"
               />
             </label>
-            <label className="form-group">
-              <span>Audience</span>
-              <select
-                value={form.target}
-                onChange={(event) =>
-                  setForm({ ...form, target: event.target.value })
-                }
-              >
-                <option value="all">All users</option>
-                <option value="student">Students</option>
-                <option value="advisor">Advisors</option>
-                <option value="teacher">Teachers</option>
-              </select>
-            </label>
+            {admin ? (
+              <label className="form-group">
+                <span>Audience</span>
+                <select
+                  value={form.target}
+                  onChange={(event) =>
+                    setForm({ ...form, target: event.target.value })
+                  }
+                >
+                  <option value="all">All users</option>
+                  <option value="student">Students</option>
+                  <option value="advisor">Advisors</option>
+                  <option value="teacher">Teachers</option>
+                </select>
+              </label>
+            ) : (
+              <label className="form-group">
+                <span>Course and batch</span>
+                <select
+                  value={form.courseId}
+                  onChange={(event) => setForm({ ...form, courseId: event.target.value })}
+                  required
+                >
+                  <option value="">Select a course</option>
+                  {courses.map((course) => (
+                    <option key={course.id || course._id} value={course.id || course._id}>
+                      {course.code} · Batch {course.batch} · {course.semesterLabel}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             <label className="form-group">
               <span>Priority</span>
               <select
@@ -256,7 +288,9 @@ export function NoticesPage({ role, admin = false }) {
               />
             </label>
             <div className="form-full">
-              <button className="btn btn-primary">Publish notice</button>
+              <button className="btn btn-primary">
+                {admin ? "Publish notice" : "Send to batch students"}
+              </button>
             </div>
           </form>
         </Card>
@@ -446,25 +480,6 @@ export function SettingsPage({ role }) {
               </label>
             </>
           )}
-          {role === "advisor" && (
-            <>
-              <label className="form-group">
-                <span>Advisor ID</span>
-                <input
-                  value={form.advisorId}
-                  onChange={change("advisorId")}
-                  required
-                />
-              </label>
-              <label className="form-group">
-                <span>Batch focus</span>
-                <input
-                  value={form.batchFocus}
-                  onChange={change("batchFocus")}
-                />
-              </label>
-            </>
-          )}
           {role === "teacher" && (
             <>
               <label className="form-group">
@@ -483,6 +498,16 @@ export function SettingsPage({ role }) {
                   required
                 />
               </label>
+              {form.isAdvisor && (
+                <label className="form-group">
+                  <span>Batch focus</span>
+                  <input
+                    value={form.batchFocus}
+                    onChange={change("batchFocus")}
+                    placeholder="60-62"
+                  />
+                </label>
+              )}
             </>
           )}
           {role !== "admin" && (

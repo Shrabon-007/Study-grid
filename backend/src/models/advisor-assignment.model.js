@@ -14,9 +14,17 @@ const advisorAssignmentSchema = new mongoose.Schema(
       trim: true,
       index: true,
     },
+    // Retained only so existing pre-merge records can be migrated safely.
+    // New assignments always identify their advisor through advisorTeacherId.
     advisorId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Advisor",
+      index: true,
+      default: null,
+    },
+    advisorTeacherId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Teacher",
       index: true,
       default: null,
     },

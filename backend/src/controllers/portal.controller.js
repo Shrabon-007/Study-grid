@@ -1087,9 +1087,21 @@ const getNotices = async (req, res) => {
     }
 
     const role = ctx.user.role;
-    const targets = role === "advisor" ? ["advisors", "students_advisors"] : role === "student" ? ["students", "students_advisors"] : ["students", "advisors", "students_advisors"];
+    const isTeacherAdvisor = role === "teacher" && Boolean(ctx.teacher?.isAdvisor || (await Teacher.findOne({ userId: ctx.user._id, isAdvisor: true })));
+    const targets = isTeacherAdvisor ? ["advisors", "students_advisors"] : role === "student" ? ["students", "students_advisors"] : ["students", "advisors", "students_advisors"];
 
-    const items = await Notice.find({ target: { $in: targets }, status: { $ne: "archived" } }).sort({ publishedAt: -1 });
+    const noticeFilter = { target: { $in: targets }, status: { $ne: "archived" } };
+    if (role === "student" && ctx.student) {
+      noticeFilter.$or = [
+        { batch: { $exists: false } },
+        { batch: "" },
+        { batch: toBatchMongoMatch(ctx.student.batch).$in },
+      ];
+    }
+
+    const items = await Notice.find(noticeFilter)
+      .populate("courseId", "code name batch semesterLabel")
+      .sort({ publishedAt: -1 });
     return res.status(200).json({ success: true, data: { items } });
   } catch (error) {
     return res.status(500).json({ success: false, message: "Could not load notices.", error: error.message });
@@ -1126,6 +1138,48 @@ const createNotice = async (req, res) => {
   }
 };
 
+const createTeacherNotice = async (req, res) => {
+  try {
+    const ctx = await withContext(req);
+    if (!ensureRole(res, ctx.user, ["teacher"])) return;
+    if (!ctx.teacher) {
+      return res.status(404).json({ success: false, message: "Teacher profile not found." });
+    }
+
+    const title = normalize(req.body.title);
+    const content = normalize(req.body.content);
+    const priority = toNoticePriority(req.body.priority);
+    const courseId = normalize(req.body.courseId);
+    if (!title || !content || !courseId) {
+      return res.status(400).json({ success: false, message: "title, content and courseId are required." });
+    }
+
+    const course = await Course.findOne({ _id: courseId, teacherId: ctx.teacher._id });
+    if (!course) {
+      return res.status(403).json({ success: false, message: "You can only send notices for your own courses." });
+    }
+
+    const item = await Notice.create({
+      createdByUserId: ctx.user._id,
+      createdByTeacherId: ctx.teacher._id,
+      title,
+      content,
+      target: "students",
+      priority,
+      batch: normalizeBatchValue(course.batch),
+      courseId: course._id,
+      semesterLabel: normalize(course.semesterLabel),
+      status: "published",
+      publishedAt: new Date(),
+    });
+
+    await item.populate("courseId", "code name batch semesterLabel");
+    return res.status(201).json({ success: true, message: "Course notice published.", data: item });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Could not publish course notice.", error: error.message });
+  }
+};
+
 const getAdvisorAssignments = async (req, res) => {
   try {
     const ctx = await withContext(req);
@@ -1143,7 +1197,8 @@ const getAdminAdvisors = async (req, res) => {
     const ctx = await withContext(req);
     if (!ensureRole(res, ctx.user, ["admin"])) return;
 
-    const advisors = await Advisor.find({}).populate("userId", "name").sort({ createdAt: -1 });
+    // Return teachers who have isAdvisor=true (new system)
+    const teachers = await Teacher.find({ isAdvisor: true }).populate("userId", "name").sort({ createdAt: -1 });
     const assignments = await AdvisorAssignment.find({ status: "assigned" }).select("advisorName startSerial endSerial");
 
     const adviseeCountByAdvisor = {};
@@ -1153,16 +1208,34 @@ const getAdminAdvisors = async (req, res) => {
       adviseeCountByAdvisor[name] = (adviseeCountByAdvisor[name] || 0) + count;
     });
 
-    const items = advisors.map((advisor) => {
-      const advisorName = advisor.userId && advisor.userId.name ? advisor.userId.name : "Advisor";
+    const items = teachers.map((teacher) => {
+      const advisorName = teacher.userId && teacher.userId.name ? teacher.userId.name : "Teacher";
       return {
+        id: teacher._id,
+        teacherId: teacher.teacherId,
+        name: advisorName,
+        department: teacher.department || "",
+        batchFocus: teacher.batchFocus || "",
+        isAdvisor: true,
+        adviseeCount: adviseeCountByAdvisor[advisorName] || 0,
+      };
+    });
+
+    // Also include legacy advisors from old Advisor collection
+    const legacyAdvisors = await Advisor.find({}).populate("userId", "name").sort({ createdAt: -1 });
+    legacyAdvisors.forEach((advisor) => {
+      const advisorName = advisor.userId && advisor.userId.name ? advisor.userId.name : "Advisor";
+      // Skip if already listed as a teacher-advisor
+      if (items.some((i) => i.name === advisorName)) return;
+      items.push({
         id: advisor._id,
         advisorId: advisor.advisorId,
         name: advisorName,
         department: advisor.department || "",
         batchFocus: advisor.batchFocus || "",
+        isAdvisor: true,
         adviseeCount: adviseeCountByAdvisor[advisorName] || 0,
-      };
+      });
     });
 
     return res.status(200).json({ success: true, data: { items } });
@@ -1185,14 +1258,22 @@ const getStudentAssignedAdvisor = async (req, res) => {
     }
 
     const assignment = await AdvisorAssignment.findOne({
-      batch: toBatchPattern(ctx.student.batch),
+      batch: toBatchMongoMatch(ctx.student.batch),
       status: "assigned",
       startSerial: { $lte: comparable },
       endSerial: { $gte: comparable },
-    }).sort({ createdAt: -1 });
+    })
+      .sort({ createdAt: -1 })
+      .populate({ path: "advisorTeacherId", populate: { path: "userId", select: "name role" } });
 
     if (!assignment) {
       return res.status(200).json({ success: true, data: { advisor: null } });
+    }
+
+    let advisorUserId = assignment.advisorTeacherId?.userId?._id || null;
+    if (!advisorUserId && assignment.advisorName) {
+      const legacyTeacher = await User.findOne({ role: "teacher", name: assignment.advisorName }).select("_id");
+      advisorUserId = legacyTeacher?._id || null;
     }
 
     return res.status(200).json({
@@ -1200,6 +1281,7 @@ const getStudentAssignedAdvisor = async (req, res) => {
       data: {
         advisor: {
           advisorName: assignment.advisorName,
+          advisorUserId,
           batch: assignment.batch,
           startSerial: assignment.startSerial,
           endSerial: assignment.endSerial,
@@ -1214,19 +1296,35 @@ const getStudentAssignedAdvisor = async (req, res) => {
 const getAdvisorStudentsByBatch = async (req, res) => {
   try {
     const ctx = await withContext(req);
-    if (!ensureRole(res, ctx.user, ["advisor"])) return;
+    if (!ensureRole(res, ctx.user, ["advisor", "teacher"])) return;
+
+    const teacherProfile = ctx.teacher || await Teacher.findOne({ userId: ctx.user._id });
+    if (ctx.user.role === "teacher") {
+      if (!teacherProfile || !teacherProfile.isAdvisor) {
+        return res.status(403).json({ success: false, message: "You do not have advisor access. Contact admin." });
+      }
+    }
 
     const batchQuery = normalize(req.query.batch);
-    const advisorProfile = ctx.advisor || await Advisor.findOne({ userId: ctx.user._id });
     const assignmentsFilter = { status: "assigned" };
-    if (advisorProfile && advisorProfile._id) {
-      assignmentsFilter.advisorId = advisorProfile._id;
+
+    if (ctx.user.role === "teacher" && teacherProfile) {
+      assignmentsFilter.$or = [
+        { advisorTeacherId: teacherProfile._id },
+        { advisorName: ctx.user.name },
+      ];
     } else {
-      assignmentsFilter.advisorName = ctx.user.name;
+      const advisorProfile = ctx.advisor || await Advisor.findOne({ userId: ctx.user._id });
+      if (advisorProfile && advisorProfile._id) {
+        assignmentsFilter.advisorId = advisorProfile._id;
+      } else {
+        assignmentsFilter.advisorName = ctx.user.name;
+      }
     }
 
     if (batchQuery) {
-      assignmentsFilter.batch = toBatchPattern(batchQuery);
+      const aliases = Array.from(new Set(getBatchAliases(batchQuery).filter(Boolean)));
+      assignmentsFilter.batch = { $in: aliases.map((alias) => new RegExp("^(batch\\s*)?" + escapeRegex(alias) + "$", "i")) };
     }
 
     const assignments = await AdvisorAssignment.find(assignmentsFilter).sort({ createdAt: -1 });
@@ -1317,13 +1415,13 @@ const getAdminStudentsByBatch = async (req, res) => {
       return res.status(400).json({ success: false, message: "batch query is required." });
     }
 
-    const batchNumber = batchRaw.replace(/^batch\s*/i, "").trim();
-    const escapedBatch = batchNumber.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const batchPattern = new RegExp("^(batch\\s*)?" + escapedBatch + "$", "i");
+    const batchAliases = Array.from(new Set(getBatchAliases(batchRaw).filter(Boolean)));
+    const batchPatterns = batchAliases.map((alias) => new RegExp("^(batch\\s*)?" + escapeRegex(alias) + "$", "i"));
+    const normalizedBatch = batchAliases[0] || normalizeBatchValue(batchRaw);
 
     const [students, assignments] = await Promise.all([
-      Student.find({ batch: batchPattern }).populate("userId", "name").sort({ studentId: 1 }),
-      AdvisorAssignment.find({ batch: batchPattern, status: "assigned" }).sort({ createdAt: -1 }),
+      Student.find({ batch: { $in: batchPatterns } }).populate("userId", "name").sort({ studentId: 1 }),
+      AdvisorAssignment.find({ batch: { $in: batchPatterns }, status: "assigned" }).sort({ createdAt: -1 }),
     ]);
 
     const toComparableNumber = (student) => {
@@ -1364,7 +1462,7 @@ const getAdminStudentsByBatch = async (req, res) => {
       assignedAdvisor: student.assignedAdvisor,
     }));
 
-    return res.status(200).json({ success: true, data: { batch: batchNumber, items } });
+    return res.status(200).json({ success: true, data: { batch: normalizedBatch, items } });
   } catch (error) {
     return res.status(500).json({ success: false, message: "Could not load students by batch.", error: error.message });
   }
@@ -1379,6 +1477,7 @@ const createAdvisorAssignment = async (req, res) => {
     }
 
     const batch = normalize(req.body.batch);
+    const teacherId = normalize(req.body.teacherId || req.body.advisorTeacherId || req.body.teacher);
     const advisorName = normalize(req.body.advisorName || req.body.teacher);
     const startSerial = Number(req.body.startSerial || req.body.startId || 0);
     const endSerial = Number(req.body.endSerial || req.body.endId || 0);
@@ -1392,17 +1491,48 @@ const createAdvisorAssignment = async (req, res) => {
       return res.status(400).json({ success: false, message: "Each advisor assignment must include exactly 10 students." });
     }
 
-    const advisorUser = await User.findOne({ role: "advisor", name: advisorName });
-    let advisorId = null;
-    if (advisorUser) {
-      const advisorProfile = await Advisor.findOne({ userId: advisorUser._id });
-      advisorId = advisorProfile ? advisorProfile._id : null;
+    let advisorTeacherId = null;
+    let resolvedAdvisorName = advisorName;
+
+    if (teacherId) {
+      const selectedTeacher = await Teacher.findById(teacherId).populate("userId", "name");
+      if (selectedTeacher) {
+        advisorTeacherId = selectedTeacher._id;
+        resolvedAdvisorName = selectedTeacher.userId && selectedTeacher.userId.name ? selectedTeacher.userId.name : advisorName;
+      }
     }
-    if (!advisorId) {
+
+    if (!advisorTeacherId) {
+      const teacherMatch = await Teacher.findOne({ userId: { $ne: null } }).populate("userId", "name");
+      if (teacherMatch && teacherMatch.userId && teacherMatch.userId.name === advisorName) {
+        advisorTeacherId = teacherMatch._id;
+        resolvedAdvisorName = teacherMatch.userId.name;
+      }
+    }
+
+    if (!advisorTeacherId) {
+      const teacherByName = await Teacher.findOne({}).populate("userId", "name");
+      const exactTeacher = teacherByName && teacherByName.userId && teacherByName.userId.name === advisorName ? teacherByName : null;
+      if (exactTeacher) {
+        advisorTeacherId = exactTeacher._id;
+        resolvedAdvisorName = exactTeacher.userId.name;
+      }
+    }
+
+    if (!advisorTeacherId) {
+      const teacherWithName = await Teacher.find({ isAdvisor: true }).populate("userId", "name");
+      const match = teacherWithName.find((teacher) => teacher.userId && teacher.userId.name === advisorName);
+      if (match) {
+        advisorTeacherId = match._id;
+        resolvedAdvisorName = match.userId.name;
+      }
+    }
+
+    if (!advisorTeacherId) {
       return res.status(404).json({ success: false, message: "Selected advisor account was not found." });
     }
 
-    const existingExact = await AdvisorAssignment.findOne({ batch, advisorName, startSerial, endSerial });
+    const existingExact = await AdvisorAssignment.findOne({ batch, advisorName: resolvedAdvisorName, startSerial, endSerial });
 
     if (!existingExact) {
       const overlapping = await AdvisorAssignment.findOne({
@@ -1410,6 +1540,7 @@ const createAdvisorAssignment = async (req, res) => {
         status: "assigned",
         startSerial: { $lte: endSerial },
         endSerial: { $gte: startSerial },
+        advisorTeacherId: { $in: [null, advisorTeacherId] },
       });
 
       if (overlapping) {
@@ -1421,10 +1552,12 @@ const createAdvisorAssignment = async (req, res) => {
     }
 
     const item = await AdvisorAssignment.findOneAndUpdate(
-      { batch, advisorName, startSerial, endSerial },
+      { batch, advisorName: resolvedAdvisorName, startSerial, endSerial },
       {
         $set: {
-          advisorId,
+          advisorName: resolvedAdvisorName,
+          advisorId: null,
+          advisorTeacherId,
           status: "assigned",
           createdByAdminId: ctx.admin._id,
         },
@@ -1441,7 +1574,13 @@ const createAdvisorAssignment = async (req, res) => {
 const getAdvisorStudentReport = async (req, res) => {
   try {
     const ctx = await withContext(req);
-    if (!ensureRole(res, ctx.user, ["advisor"])) return;
+    if (!ensureRole(res, ctx.user, ["advisor", "teacher"])) return;
+    if (ctx.user.role === "teacher") {
+      const teacherProfile = ctx.teacher || await Teacher.findOne({ userId: ctx.user._id });
+      if (!teacherProfile || !teacherProfile.isAdvisor) {
+        return res.status(403).json({ success: false, message: "You do not have advisor access. Contact admin." });
+      }
+    }
 
     const studentUserId = normalize(req.query.studentUserId);
     const studentIdValue = normalize(req.query.studentId);
@@ -1467,14 +1606,23 @@ const getAdvisorStudentReport = async (req, res) => {
       return res.status(403).json({ success: false, message: "Student is not assigned to this advisor." });
     }
 
+    const teacherProfile = ctx.teacher || await Teacher.findOne({ userId: ctx.user._id });
     const advisorProfile = ctx.advisor || await Advisor.findOne({ userId: ctx.user._id });
     const advisorQuery = {
-      batch: toBatchPattern(targetStudent.batch),
       status: "assigned",
       startSerial: { $lte: comparable },
       endSerial: { $gte: comparable },
     };
-    if (advisorProfile && advisorProfile._id) {
+
+    const batchPatterns = Array.from(new Set(getBatchAliases(targetStudent.batch).filter(Boolean))).map((alias) => new RegExp("^(batch\\s*)?" + escapeRegex(alias) + "$", "i"));
+    advisorQuery.batch = { $in: batchPatterns };
+
+    if (ctx.user.role === "teacher" && teacherProfile) {
+      advisorQuery.$or = [
+        { advisorTeacherId: teacherProfile._id },
+        { advisorName: ctx.user.name },
+      ];
+    } else if (advisorProfile && advisorProfile._id) {
       advisorQuery.advisorId = advisorProfile._id;
     } else {
       advisorQuery.advisorName = ctx.user.name;
@@ -1485,9 +1633,12 @@ const getAdvisorStudentReport = async (req, res) => {
       return res.status(403).json({ success: false, message: "You can only view reports of your assigned students." });
     }
 
-    const semesterRows = await SemesterCgpa.find({ studentId: targetStudent._id }).sort({ updatedAt: -1, semesterLabel: -1 });
-    const attendanceRowsAll = await Attendance.find({ studentId: targetStudent._id }).populate("courseId").sort({ updatedAt: -1 });
-    const ctRowsAll = await CtMark.find({ studentId: targetStudent._id }).populate("courseId").sort({ updatedAt: -1 });
+    const [semesterRows, attendanceRowsAll, ctRowsAll, currentSetup] = await Promise.all([
+      SemesterCgpa.find({ studentId: targetStudent._id }).sort({ updatedAt: -1, semesterLabel: -1 }),
+      Attendance.find({ studentId: targetStudent._id, publishedByTeacher: true }).populate("courseId").sort({ updatedAt: -1 }),
+      CtMark.find({ studentId: targetStudent._id, publishedByTeacher: true }).populate("courseId").sort({ updatedAt: -1 }),
+      SemesterSetup.findOne({ studentId: targetStudent._id }).sort({ updatedAt: -1 }),
+    ]);
 
     const semesterItems = semesterRows.map((row) => ({
       semesterLabel: row.semesterLabel,
@@ -1496,12 +1647,15 @@ const getAdvisorStudentReport = async (req, res) => {
       updatedAt: row.updatedAt,
     }));
 
-    const latestSemesterLabel = semesterItems.length
-      ? semesterItems[0].semesterLabel
-      : (attendanceRowsAll[0] && attendanceRowsAll[0].semesterLabel) || (ctRowsAll[0] && ctRowsAll[0].semesterLabel) || "";
-    const latestAttendanceSemesterLabel = (attendanceRowsAll[0] && attendanceRowsAll[0].semesterLabel) || latestSemesterLabel || "";
-    const latestCtSemesterLabel = (ctRowsAll[0] && ctRowsAll[0].semesterLabel) || latestSemesterLabel || "";
-    const currentSemesterCgpa = semesterItems.length ? Number(semesterItems[0].cgpa || 0) : 0;
+    const latestActivity = [semesterRows[0], attendanceRowsAll[0], ctRowsAll[0]]
+      .filter(Boolean)
+      .sort((left, right) => new Date(right.updatedAt || 0) - new Date(left.updatedAt || 0))[0];
+    const currentSemesterLabel = normalize(currentSetup?.semesterLabel || latestActivity?.semesterLabel || "");
+    const currentSemesterRow = semesterRows.find((row) => normalize(row.semesterLabel) === currentSemesterLabel);
+    const latestSemesterLabel = currentSemesterLabel;
+    const latestAttendanceSemesterLabel = currentSemesterLabel;
+    const latestCtSemesterLabel = currentSemesterLabel;
+    const currentSemesterCgpa = currentSemesterRow ? Number(currentSemesterRow.cgpa || 0) : 0;
     const overallCgpa = semesterItems.length
       ? Number((semesterItems.reduce((sum, item) => sum + Number(item.cgpa || 0), 0) / semesterItems.length).toFixed(2))
       : 0;
@@ -1563,7 +1717,12 @@ const getAdvisorStudentReport = async (req, res) => {
       : 0;
 
     const assignmentQuery = { status: "assigned" };
-    if (advisorProfile && advisorProfile._id) {
+    if (ctx.user.role === "teacher" && teacherProfile) {
+      assignmentQuery.$or = [
+        { advisorTeacherId: teacherProfile._id },
+        { advisorName: ctx.user.name },
+      ];
+    } else if (advisorProfile && advisorProfile._id) {
       assignmentQuery.advisorId = advisorProfile._id;
     } else {
       assignmentQuery.advisorName = ctx.user.name;
@@ -1624,15 +1783,23 @@ const getAdvisorStudentReport = async (req, res) => {
       },
     ]);
 
-    const ranked = rankingRows
-      .map((row) => ({
-        studentId: String(row._id),
+    const rankingByStudentId = new Map(
+      rankingRows.map((row) => [String(row._id), {
         overall: Number(row.overall || 0),
         current: Number(row.current || 0),
+      }]),
+    );
+
+    const ranked = matchedStudentIds
+      .map((studentId) => ({
+        studentId,
+        overall: rankingByStudentId.get(studentId)?.overall || 0,
+        current: rankingByStudentId.get(studentId)?.current || 0,
       }))
       .sort((a, b) => {
         if (b.overall !== a.overall) return b.overall - a.overall;
-        return b.current - a.current;
+        if (b.current !== a.current) return b.current - a.current;
+        return a.studentId.localeCompare(b.studentId);
       });
 
     const currentStudentRank = ranked.findIndex((item) => item.studentId === String(targetStudent._id)) + 1;
@@ -1704,11 +1871,23 @@ const getAdvisorStudentReport = async (req, res) => {
 const getAdvisorPerformanceWatchlist = async (req, res) => {
   try {
     const ctx = await withContext(req);
-    if (!ensureRole(res, ctx.user, ["advisor"])) return;
+    if (!ensureRole(res, ctx.user, ["advisor", "teacher"])) return;
+    if (ctx.user.role === "teacher") {
+      const teacherProfile = ctx.teacher || await Teacher.findOne({ userId: ctx.user._id });
+      if (!teacherProfile || !teacherProfile.isAdvisor) {
+        return res.status(403).json({ success: false, message: "You do not have advisor access. Contact admin." });
+      }
+    }
 
+    const teacherProfile = ctx.teacher || await Teacher.findOne({ userId: ctx.user._id });
     const advisorProfile = ctx.advisor || await Advisor.findOne({ userId: ctx.user._id });
     const assignmentQuery = { status: "assigned" };
-    if (advisorProfile && advisorProfile._id) {
+    if (ctx.user.role === "teacher" && teacherProfile) {
+      assignmentQuery.$or = [
+        { advisorTeacherId: teacherProfile._id },
+        { advisorName: ctx.user.name },
+      ];
+    } else if (advisorProfile && advisorProfile._id) {
       assignmentQuery.advisorId = advisorProfile._id;
     } else {
       assignmentQuery.advisorName = ctx.user.name;
@@ -1741,12 +1920,13 @@ const getAdvisorPerformanceWatchlist = async (req, res) => {
 
     const studentIds = assignedStudents.map((student) => student._id);
     const semesterRows = await SemesterCgpa.find({ studentId: { $in: studentIds } }).sort({ updatedAt: -1 });
-    const attendanceRows = await Attendance.find({ studentId: { $in: studentIds } }).sort({ updatedAt: -1 });
-    const ctRows = await CtMark.find({ studentId: { $in: studentIds } }).sort({ updatedAt: -1 });
+    const attendanceRows = await Attendance.find({ studentId: { $in: studentIds }, publishedByTeacher: true }).sort({ updatedAt: -1 });
+    const ctRows = await CtMark.find({ studentId: { $in: studentIds }, publishedByTeacher: true }).sort({ updatedAt: -1 });
 
     const latestSemesterByStudent = new Map();
     const latestCgpaByStudent = new Map();
     const cgpaAggByStudent = new Map();
+    const latestActivityByStudent = new Map();
 
     semesterRows.forEach((row) => {
       const sid = String(row.studentId);
@@ -1759,6 +1939,11 @@ const getAdvisorPerformanceWatchlist = async (req, res) => {
         latestSemesterByStudent.set(sid, row.semesterLabel || "");
         latestCgpaByStudent.set(sid, Number(row.cgpa || 0));
       }
+
+      const activity = latestActivityByStudent.get(sid);
+      if (!activity || new Date(row.updatedAt || 0) > new Date(activity.updatedAt || 0)) {
+        latestActivityByStudent.set(sid, row);
+      }
     });
 
     const attendanceAvgByStudentSemester = new Map();
@@ -1768,6 +1953,12 @@ const getAdvisorPerformanceWatchlist = async (req, res) => {
       current.sum += Number(row.percentage || 0);
       current.count += 1;
       attendanceAvgByStudentSemester.set(key, current);
+
+      const sid = String(row.studentId);
+      const activity = latestActivityByStudent.get(sid);
+      if (!activity || new Date(row.updatedAt || 0) > new Date(activity.updatedAt || 0)) {
+        latestActivityByStudent.set(sid, row);
+      }
     });
 
     const ctAvgByStudentSemester = new Map();
@@ -1780,6 +1971,12 @@ const getAdvisorPerformanceWatchlist = async (req, res) => {
       current.sum += percentage;
       current.count += 1;
       ctAvgByStudentSemester.set(key, current);
+
+      const sid = String(row.studentId);
+      const activity = latestActivityByStudent.get(sid);
+      if (!activity || new Date(row.updatedAt || 0) > new Date(activity.updatedAt || 0)) {
+        latestActivityByStudent.set(sid, row);
+      }
     });
 
     const riskBucket = (value, thresholds) => {
@@ -1796,7 +1993,7 @@ const getAdvisorPerformanceWatchlist = async (req, res) => {
 
     const items = assignedStudents.map((student) => {
       const sid = String(student._id);
-      const latestSemesterLabel = latestSemesterByStudent.get(sid) || "";
+      const latestSemesterLabel = latestActivityByStudent.get(sid)?.semesterLabel || latestSemesterByStudent.get(sid) || "";
       const semKey = sid + "::" + latestSemesterLabel;
 
       const currentCgpa = Number(latestCgpaByStudent.get(sid) || 0);
@@ -1829,7 +2026,7 @@ const getAdvisorPerformanceWatchlist = async (req, res) => {
         ctRisk,
         riskScore: totalRiskScore,
       };
-    }).filter((item) => item.riskScore >= 6)
+    }).filter((item) => item.riskScore >= 3)
       .sort((a, b) => {
         if (b.riskScore !== a.riskScore) return b.riskScore - a.riskScore;
         return a.currentCgpa - b.currentCgpa;
@@ -1882,12 +2079,14 @@ const sendMessage = async (req, res) => {
       return res.status(401).json({ success: false, message: "Unauthorized." });
     }
 
-    const toRole = normalizeLower(req.body.toRole || (ctx.user.role === "student" ? "advisor" : "student"));
+    const requestedRole = normalizeLower(req.body.toRole || (ctx.user.role === "student" ? "teacher" : "student"));
+    const toRole = requestedRole === "advisor" ? "teacher" : requestedRole;
     const toUserId = normalize(req.body.toUserId);
-    const toName = normalize(req.body.toName || req.body.studentName || req.body.advisorName || req.body.advisor || req.body.toStudent);
+    const toName = normalize(req.body.toName || req.body.studentName || req.body.teacherName || req.body.advisorName || req.body.advisor || req.body.toStudent);
     const subject = normalize(req.body.subject);
     const content = normalize(req.body.content || req.body.message || req.body.sms);
-    const channel = normalizeLower(req.body.channel || (ctx.user.role === "advisor" ? "sms" : "portal"));
+    const isTeacherAdvisor = ctx.user.role === "teacher" && Boolean(ctx.teacher?.isAdvisor || (await Teacher.findOne({ userId: ctx.user._id, isAdvisor: true })));
+    const channel = normalizeLower(req.body.channel || (isTeacherAdvisor ? "sms" : "portal"));
 
     if (!subject || !content) {
       return res.status(400).json({ success: false, message: "subject and content are required." });
@@ -2768,6 +2967,59 @@ const saveTeacherCtMarksBySection = async (req, res) => {
   }
 };
 
+/* Toggle a teacher's isAdvisor status (admin only) */
+const toggleTeacherAdvisor = async (req, res) => {
+  try {
+    const ctx = await withContext(req);
+    if (!ensureRole(res, ctx.user, ["admin"])) return;
+
+    const teacherId = req.params.teacherId;
+    const teacher = await Teacher.findById(teacherId);
+    if (!teacher) {
+      return res.status(404).json({ success: false, message: "Teacher not found." });
+    }
+
+    const isAdvisor = req.body.isAdvisor !== undefined ? Boolean(req.body.isAdvisor) : !teacher.isAdvisor;
+    const batchFocus = String(req.body.batchFocus || teacher.batchFocus || "").trim();
+    teacher.isAdvisor = isAdvisor;
+    teacher.batchFocus = batchFocus;
+    await teacher.save();
+
+    const user = await User.findById(teacher.userId).select("name email");
+
+    return res.status(200).json({
+      success: true,
+      message: `Teacher ${user?.name || ""} is now ${isAdvisor ? "an advisor" : "no longer an advisor"}.`,
+      data: { teacherId: teacher._id, isAdvisor: teacher.isAdvisor, batchFocus: teacher.batchFocus },
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Could not update advisor status.", error: error.message });
+  }
+};
+
+/* List all teachers for admin (for advisor management) */
+const getAdminTeachers = async (req, res) => {
+  try {
+    const ctx = await withContext(req);
+    if (!ensureRole(res, ctx.user, ["admin"])) return;
+
+    const teachers = await Teacher.find({}).populate("userId", "name email").sort({ createdAt: -1 });
+    const items = teachers.map((teacher) => ({
+      id: teacher._id,
+      teacherId: teacher.teacherId,
+      name: teacher.userId?.name || "Teacher",
+      email: teacher.userId?.email || "",
+      department: teacher.department || "",
+      isAdvisor: teacher.isAdvisor || false,
+      batchFocus: teacher.batchFocus || "",
+    }));
+
+    return res.status(200).json({ success: true, data: { items } });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Could not load teachers.", error: error.message });
+  }
+};
+
 module.exports = {
   getStudentCourses,
   addStudentCourse,
@@ -2790,6 +3042,7 @@ module.exports = {
   getAdvisorPerformanceWatchlist,
   getNotices,
   createNotice,
+  createTeacherNotice,
   getAdminAdvisors,
   getAdvisorAssignments,
   getAdminStudentsByBatch,
@@ -2806,4 +3059,6 @@ module.exports = {
   getTeacherCtMarksBySection,
   getTeacherStudentResults,
   saveTeacherCtMarksBySection,
+  toggleTeacherAdvisor,
+  getAdminTeachers,
 };

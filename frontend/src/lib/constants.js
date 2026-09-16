@@ -11,14 +11,12 @@ export const SEMESTERS = [
 
 export const ROLE_LABELS = {
   admin: "Admin",
-  advisor: "Advisor",
   student: "Student",
   teacher: "Teacher",
 };
 
 export const DASHBOARD_PATHS = {
   admin: "/admin/dashboard",
-  advisor: "/advisor/dashboard",
   student: "/student/dashboard",
   teacher: "/teacher/dashboard",
 };
@@ -30,13 +28,8 @@ export const NAV_ITEMS = {
     ["CGPA", "/student/semester-cgpa"], ["Running CGPA", "/student/running-cgpa"],
     ["Notices", "/student/notices"], ["Messages", "/student/messages"], ["Settings", "/student/settings"],
   ],
-  advisor: [
-    ["Dashboard", "/advisor/dashboard"], ["Student ranking", "/advisor/ranking"],
-    ["Watchlist", "/advisor/watchlist"], ["Messages", "/advisor/messages"],
-    ["Notices", "/advisor/notices"], ["Settings", "/advisor/settings"],
-  ],
   admin: [
-    ["Dashboard", "/admin/dashboard"], ["Assign advisor", "/admin/assign-advisor"],
+    ["Dashboard", "/admin/dashboard"], ["Teacher management", "/admin/assign-advisor"],
     ["Notices", "/admin/notices"], ["Settings", "/admin/settings"],
   ],
   teacher: [
@@ -46,3 +39,10 @@ export const NAV_ITEMS = {
     ["Notices", "/teacher/notices"], ["Settings", "/teacher/settings"],
   ],
 };
+
+/* Extra nav items shown only for teachers who are also advisors */
+export const ADVISOR_NAV_ITEMS = [
+  ["Student ranking", "/teacher/advisor-ranking"],
+  ["Watchlist", "/teacher/advisor-watchlist"],
+  ["Advisor messages", "/teacher/advisor-messages"],
+];

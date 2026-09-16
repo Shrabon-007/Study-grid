@@ -33,6 +33,16 @@ const teacherSchema = new mongoose.Schema(
       trim: true,
       maxlength: 120,
     },
+    isAdvisor: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    batchFocus: {
+      type: String,
+      trim: true,
+      default: "",
+    },
   },
   {
     timestamps: true,

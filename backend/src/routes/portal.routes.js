@@ -23,6 +23,7 @@ const {
   getAdvisorPerformanceWatchlist,
   getNotices,
   createNotice,
+  createTeacherNotice,
   getAdminAdvisors,
   getAdvisorAssignments,
   getAdminStudentsByBatch,
@@ -39,6 +40,8 @@ const {
   getTeacherCtMarksBySection,
   getTeacherStudentResults,
   saveTeacherCtMarksBySection,
+  toggleTeacherAdvisor,
+  getAdminTeachers,
 } = require("../controllers/portal.controller");
 
 const router = express.Router();
@@ -65,17 +68,27 @@ router.put("/student/semester-cgpa", saveSemesterCgpa);
 router.get("/student/cumulative-cgpa", getStudentCumulativeCgpa);
 router.get("/student/ranking", getStudentRanking);
 router.get("/student/advisor", getStudentAssignedAdvisor);
+
+// Legacy advisor routes (kept for backward compatibility)
 router.get("/advisor/students", getAdvisorStudentsByBatch);
 router.get("/advisor/student-report", getAdvisorStudentReport);
 router.get("/advisor/performance-watchlist", getAdvisorPerformanceWatchlist);
 
+// Teacher advisor routes (new — same handlers, accessible to teacher+isAdvisor)
+router.get("/teacher/advisor/students", getAdvisorStudentsByBatch);
+router.get("/teacher/advisor/student-report", getAdvisorStudentReport);
+router.get("/teacher/advisor/watchlist", getAdvisorPerformanceWatchlist);
+
 router.get("/notices", getNotices);
 router.post("/admin/notices", createNotice);
+router.post("/teacher/notices", createTeacherNotice);
 
 router.get("/admin/advisors", getAdminAdvisors);
 router.get("/admin/assignments", getAdvisorAssignments);
 router.get("/admin/students", getAdminStudentsByBatch);
 router.post("/admin/assignments", createAdvisorAssignment);
+router.get("/admin/teachers", getAdminTeachers);
+router.put("/admin/teachers/:teacherId/advisor", toggleTeacherAdvisor);
 
 router.get("/messages", getMessages);
 router.post("/messages", sendMessage);

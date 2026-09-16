@@ -38,7 +38,7 @@ const register = async (req, res) => {
       });
     }
 
-    if (!["admin", "advisor", "student", "teacher"].includes(role)) {
+    if (!["admin", "student", "teacher"].includes(role)) {
       return res.status(400).json({
         success: false,
         message: "Invalid role.",
@@ -139,35 +139,8 @@ const register = async (req, res) => {
       });
     }
 
-    if (role === "advisor") {
-      const advisorId = String(req.body.advisorId || "").trim();
-      const department = String(req.body.department || "").trim();
-      const batchFocus = String(req.body.batchFocus || "").trim();
+    // Advisor role has been merged into teacher. Advisors are teachers with isAdvisor=true.
 
-      if (!advisorId || !department) {
-        await User.deleteOne({ _id: user._id });
-        return res.status(400).json({
-          success: false,
-          message: "advisorId and department are required for advisor registration.",
-        });
-      }
-
-      const existsAdvisorId = await Advisor.findOne({ advisorId });
-      if (existsAdvisorId) {
-        await User.deleteOne({ _id: user._id });
-        return res.status(409).json({
-          success: false,
-          message: "Advisor ID already exists.",
-        });
-      }
-
-      await Advisor.create({
-        userId: user._id,
-        advisorId,
-        department,
-        batchFocus,
-      });
-    }
 
     if (role === "admin") {
       await Admin.create({ userId: user._id });
@@ -248,16 +221,12 @@ const login = async (req, res) => {
       profile = await Student.findOne({ userId: user._id }).select("studentId batch level term section department advisorId");
     }
 
-    if (user.role === "advisor") {
-      profile = await Advisor.findOne({ userId: user._id }).select("advisorId department batchFocus");
-    }
-
     if (user.role === "admin") {
       profile = await Admin.findOne({ userId: user._id }).select("_id userId createdAt");
     }
 
     if (user.role === "teacher") {
-      profile = await Teacher.findOne({ userId: user._id }).select("teacherId username department");
+      profile = await Teacher.findOne({ userId: user._id }).select("teacherId username department isAdvisor batchFocus");
       if (!profile) {
         return res.status(401).json({
           success: false,
@@ -313,16 +282,12 @@ const me = async (req, res) => {
       profile = await Student.findOne({ userId: user._id }).select("studentId batch level term section department advisorId");
     }
 
-    if (user.role === "advisor") {
-      profile = await Advisor.findOne({ userId: user._id }).select("advisorId department batchFocus");
-    }
-
     if (user.role === "admin") {
       profile = await Admin.findOne({ userId: user._id }).select("_id userId createdAt");
     }
 
     if (user.role === "teacher") {
-      profile = await Teacher.findOne({ userId: user._id }).select("teacherId username department");
+      profile = await Teacher.findOne({ userId: user._id }).select("teacherId username department isAdvisor batchFocus");
     }
 
     return res.status(200).json({
@@ -437,36 +402,13 @@ const updateMe = async (req, res) => {
       }
     }
 
-    if (user.role === "advisor") {
-      const advisor = await Advisor.findOne({ userId: user._id });
-      if (advisor) {
-        const advisorId = String(req.body.advisorId || "").trim();
-        const department = String(req.body.department || "").trim();
-        const batchFocus = String(req.body.batchFocus || "").trim();
-
-        if (advisorId && advisorId !== advisor.advisorId) {
-          const advisorIdOwner = await Advisor.findOne({ advisorId, _id: { $ne: advisor._id } });
-          if (advisorIdOwner) {
-            return res.status(409).json({
-              success: false,
-              message: "Advisor ID already exists.",
-            });
-          }
-          advisor.advisorId = advisorId;
-        }
-
-        if (department) advisor.department = department;
-        if (req.body.batchFocus !== undefined) advisor.batchFocus = batchFocus;
-        await advisor.save();
-      }
-    }
-
     if (user.role === "teacher") {
       const teacher = await Teacher.findOne({ userId: user._id });
       if (teacher) {
         const teacherId = String(req.body.teacherId || "").trim().toUpperCase();
         const username = normalizeEmail(req.body.username);
         const department = String(req.body.department || "").trim();
+        const batchFocus = String(req.body.batchFocus || "").trim();
 
         if (teacherId && teacherId !== teacher.teacherId) {
           const teacherIdOwner = await Teacher.findOne({ teacherId, _id: { $ne: teacher._id } });
@@ -488,6 +430,7 @@ const updateMe = async (req, res) => {
         }
 
         if (department) teacher.department = department;
+        if (req.body.batchFocus !== undefined) teacher.batchFocus = batchFocus;
         await teacher.save();
       }
     }
@@ -498,14 +441,11 @@ const updateMe = async (req, res) => {
     if (user.role === "student") {
       profile = await Student.findOne({ userId: user._id }).select("studentId batch level term section department advisorId");
     }
-    if (user.role === "advisor") {
-      profile = await Advisor.findOne({ userId: user._id }).select("advisorId department batchFocus");
-    }
     if (user.role === "admin") {
       profile = await Admin.findOne({ userId: user._id }).select("_id userId createdAt");
     }
     if (user.role === "teacher") {
-      profile = await Teacher.findOne({ userId: user._id }).select("teacherId username department");
+      profile = await Teacher.findOne({ userId: user._id }).select("teacherId username department isAdvisor batchFocus");
     }
 
     const token = signToken(user);

@@ -4,7 +4,7 @@ import { api } from "../lib/api";
 import { DASHBOARD_PATHS, ROLE_LABELS } from "../lib/constants";
 import { useAuth } from "../context/AuthContext";
 
-const roles = ["student", "advisor", "teacher", "admin"];
+const roles = ["student", "teacher", "admin"];
 
 export function LoginPage() {
   const { session, setSession } = useAuth();
@@ -39,7 +39,7 @@ export function LoginPage() {
 
 export function RegisterPage() {
   const navigate = useNavigate();
-  const [form, setForm] = useState({ role: "student", name: "", email: "", password: "", confirm: "", studentId: "", batch: "", level: "1", term: "1", section: "A", advisorId: "", teacherId: "", username: "", department: "CSE", batchFocus: "" });
+  const [form, setForm] = useState({ role: "student", name: "", email: "", password: "", confirm: "", studentId: "", batch: "", level: "1", term: "1", section: "A", teacherId: "", username: "", department: "CSE" });
   const [error, setError] = useState(""); const [busy, setBusy] = useState(false);
   const set = (name, value) => setForm((prev) => ({ ...prev, [name]: value }));
   const submit = async (event) => {
@@ -49,8 +49,7 @@ export function RegisterPage() {
     try {
       const body = { role: form.role, name: form.name.trim(), email: form.email.trim().toLowerCase(), password: form.password, department: form.department.trim() };
       if (form.role === "student") Object.assign(body, { studentId: form.studentId.trim(), batch: form.batch.trim(), level: Number(form.level), term: Number(form.term), section: form.section.trim().toUpperCase() });
-      if (form.role === "advisor") Object.assign(body, { advisorId: form.advisorId.trim(), batchFocus: form.batchFocus.trim() });
-      if (form.role === "teacher") Object.assign(body, { teacherId: form.teacherId.trim(), username: form.username.trim() });
+      if (form.role === "teacher") Object.assign(body, { teacherId: form.teacherId.trim(), username: form.username.trim(), department: form.department.trim() });
       await api("/auth/register", { method: "POST", body });
       navigate(`/login?role=${encodeURIComponent(form.role)}&email=${encodeURIComponent(form.email)}`);
     } catch (err) { setError(err.message); } finally { setBusy(false); }
@@ -60,7 +59,6 @@ export function RegisterPage() {
       <Field label="Role"><select value={form.role} onChange={(event) => set("role", event.target.value)}>{roles.map((role) => <option key={role} value={role}>{ROLE_LABELS[role]}</option>)}</select></Field>
       <Field label="Full name"><input value={form.name} onChange={(event) => set("name", event.target.value)} required placeholder="Your name" /></Field>
       {form.role === "student" && <><Field label="Student ID"><input value={form.studentId} onChange={(event) => set("studentId", event.target.value)} required placeholder="2201001" /></Field><Field label="Batch"><input value={form.batch} onChange={(event) => set("batch", event.target.value)} required placeholder="2022" /></Field><Field label="Level"><input type="number" min="1" max="8" value={form.level} onChange={(event) => set("level", event.target.value)} required /></Field><Field label="Term"><select value={form.term} onChange={(event) => set("term", event.target.value)}><option value="1">Term 1</option><option value="2">Term 2</option></select></Field><Field label="Section"><input value={form.section} onChange={(event) => set("section", event.target.value.toUpperCase())} required maxLength="10" placeholder="A" /></Field></>}
-      {form.role === "advisor" && <><Field label="Advisor ID"><input value={form.advisorId} onChange={(event) => set("advisorId", event.target.value)} required placeholder="ADV-102" /></Field><Field label="Batch focus"><input value={form.batchFocus} onChange={(event) => set("batchFocus", event.target.value)} placeholder="60-62" /></Field></>}
       {form.role === "teacher" && <><Field label="Teacher ID"><input value={form.teacherId} onChange={(event) => set("teacherId", event.target.value)} required placeholder="TCH-102" /></Field><Field label="Username"><input value={form.username} onChange={(event) => set("username", event.target.value)} required placeholder="j.smith" /></Field></>}
       {form.role !== "admin" && <Field label="Department"><input value={form.department} onChange={(event) => set("department", event.target.value)} required placeholder="CSE" /></Field>}
       <Field label="Email"><input type="email" value={form.email} onChange={(event) => set("email", event.target.value)} required placeholder="you@example.edu" /></Field>

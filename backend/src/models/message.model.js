@@ -16,13 +16,13 @@ const messageSchema = new mongoose.Schema(
     },
     fromRole: {
       type: String,
-      enum: ["student", "advisor", "admin"],
+      enum: ["student", "teacher", "admin"],
       required: true,
       index: true,
     },
     toRole: {
       type: String,
-      enum: ["student", "advisor", "admin"],
+      enum: ["student", "teacher", "admin"],
       required: true,
       index: true,
     },

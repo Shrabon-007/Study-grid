@@ -1,7 +1,7 @@
 import { Link, NavLink, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useState } from "react";
 import { api, initials } from "../lib/api";
-import { DASHBOARD_PATHS, NAV_ITEMS, ROLE_LABELS } from "../lib/constants";
+import { ADVISOR_NAV_ITEMS, DASHBOARD_PATHS, NAV_ITEMS, ROLE_LABELS } from "../lib/constants";
 import { useAuth } from "../context/AuthContext";
 
 export function ProtectedRoute({ role, children }) {
@@ -23,7 +23,10 @@ export function PortalLayout({ children }) {
     logout();
     navigate("/login");
   };
-  const navItems = NAV_ITEMS[role] || [];
+  let navItems = NAV_ITEMS[role] || [];
+  if (role === "teacher" && session?.profile?.isAdvisor) {
+    navItems = [...navItems, ...ADVISOR_NAV_ITEMS];
+  }
   return <div className="app-shell">
     <header className="topbar">
       <div className="topbar-inner">

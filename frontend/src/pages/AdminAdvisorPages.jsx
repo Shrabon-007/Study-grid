@@ -14,33 +14,44 @@ import {
 } from "../components/ui";
 
 export function AdvisorAssignmentPage() {
-  const [advisors, setAdvisors] = useState([]);
+  const [teachers, setTeachers] = useState([]);
   const [assignments, setAssignments] = useState([]);
   const [students, setStudents] = useState([]);
-  const [batch, setBatch] = useState("62");
+  const [batch, setBatch] = useState("2022");
   const [form, setForm] = useState({
-    batch: "62",
-    advisorName: "",
+    batch: "2022",
+    teacherId: "",
+    teacherName: "",
     startSerial: "2204001",
     endSerial: "2204010",
   });
   const [loading, setLoading] = useState(true);
   const { toast, show, close } = useToast();
+
   const load = async () => {
     setLoading(true);
     try {
-      const [advisorPayload, assignmentPayload] = await Promise.all([
-        api("/portal/admin/advisors"),
+      const [teacherPayload, assignmentPayload] = await Promise.all([
+        api("/portal/admin/teachers"),
         api("/portal/admin/assignments"),
       ]);
-      setAdvisors(dataItems(advisorPayload));
+      const teacherItems = dataItems(teacherPayload);
+      setTeachers(teacherItems);
       setAssignments(dataItems(assignmentPayload));
+      if (!form.teacherId && teacherItems[0]) {
+        setForm((prev) => ({
+          ...prev,
+          teacherId: teacherItems[0].id,
+          teacherName: teacherItems[0].name,
+        }));
+      }
     } catch (error) {
       show(error.message, "error");
     } finally {
       setLoading(false);
     }
   };
+
   const loadStudents = async (nextBatch) => {
     try {
       const payload = await api(
@@ -52,39 +63,98 @@ export function AdvisorAssignmentPage() {
       show(error.message, "error");
     }
   };
+
+  const toggleAdvisor = async (teacher) => {
+    try {
+      await api(`/portal/admin/teachers/${teacher.id}/advisor`, {
+        method: "PUT",
+        body: { isAdvisor: !teacher.isAdvisor, batchFocus: teacher.batchFocus || "" },
+      });
+      show(
+        teacher.isAdvisor
+          ? `${teacher.name} is no longer assigned as an advisor.`
+          : `${teacher.name} is now assigned as an advisor.`,
+        teacher.isAdvisor ? "warning" : "success",
+      );
+      load();
+    } catch (error) {
+      show(error.message, "error");
+    }
+  };
+
   useEffect(() => {
     load();
   }, []);
+
   useEffect(() => {
     loadStudents(batch);
   }, [batch]);
+
   const submit = async (event) => {
     event.preventDefault();
     try {
+      const teacher = teachers.find((item) => item.id === form.teacherId);
+      if (!teacher) {
+        throw new Error("Please select a teacher.");
+      }
       await api("/portal/admin/assignments", {
         method: "POST",
         body: {
-          ...form,
           batch: form.batch,
+          teacherId: form.teacherId,
+          advisorName: teacher.name,
           startSerial: Number(form.startSerial),
           endSerial: Number(form.endSerial),
         },
       });
-      show("Advisor assigned to the student range.");
+      show("Teacher advisor assignment saved.");
       load();
       loadStudents(batch);
     } catch (error) {
       show(error.message, "error");
     }
   };
+
   return (
     <>
       <PageTitle
-        title="Advisor assignment"
-        subtitle="Assign each advisor to exactly ten students within a batch."
+        title="Teacher management"
+        subtitle="Manage teacher advisor access and assign advisor ranges within each batch."
       />
       <Card>
-        <h2>Assign advisor by student range</h2>
+        <h2>Teacher advisor status</h2>
+        {loading ? (
+          <Spinner />
+        ) : (
+          <DataTable
+            columns={["Teacher Name", "Role", "Advisor", "Action"]}
+            empty="No teachers registered."
+          >
+            {teachers.map((teacher) => (
+              <tr key={teacher.id}>
+                <td>{teacher.name}</td>
+                <td>Teacher</td>
+                <td>
+                  <span className={`badge ${teacher.isAdvisor ? "priority-urgent" : "priority-normal"}`}>
+                    {teacher.isAdvisor ? "ON" : "OFF"}
+                  </span>
+                </td>
+                <td>
+                  <button
+                    type="button"
+                    className="btn btn-outline"
+                    onClick={() => toggleAdvisor(teacher)}
+                  >
+                    {teacher.isAdvisor ? "Remove advisor" : "Make advisor"}
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </DataTable>
+        )}
+      </Card>
+      <Card className="space-top">
+        <h2>Assign advisor range by teacher</h2>
         <form onSubmit={submit} className="form-grid">
           <Label label="Batch">
             <input
@@ -95,18 +165,23 @@ export function AdvisorAssignmentPage() {
               required
             />
           </Label>
-          <Label label="Advisor">
+          <Label label="Teacher">
             <select
-              value={form.advisorName}
-              onChange={(event) =>
-                setForm({ ...form, advisorName: event.target.value })
-              }
+              value={form.teacherId}
+              onChange={(event) => {
+                const teacher = teachers.find((item) => item.id === event.target.value);
+                setForm({
+                  ...form,
+                  teacherId: event.target.value,
+                  teacherName: teacher ? teacher.name : "",
+                });
+              }}
               required
             >
-              <option value="">Select an advisor</option>
-              {advisors.map((advisor) => (
-                <option key={advisor.id} value={advisor.name}>
-                  {advisor.name} · {advisor.department}
+              <option value="">Select a teacher</option>
+              {teachers.map((teacher) => (
+                <option key={teacher.id} value={teacher.id}>
+                  {teacher.name} · {teacher.department || "Department"}
                 </option>
               ))}
             </select>
@@ -132,47 +207,23 @@ export function AdvisorAssignmentPage() {
             />
           </Label>
           <div className="form-full">
-            <button className="btn btn-primary">Assign advisor</button>
+            <button className="btn btn-primary">Save advisor assignment</button>
           </div>
         </form>
         <p className="helper">
-          The backend validates that each assignment includes exactly 10
-          students and does not overlap an existing assignment.
+          Only teachers with advisor permission can be assigned advisee ranges. The backend still validates that each assignment contains exactly 10 students and does not overlap.
         </p>
       </Card>
       <section className="two-column space-top">
         <Card>
-          <h2>Advisor list</h2>
-          {loading ? (
-            <Spinner />
-          ) : (
-            <DataTable
-              columns={["Advisor", "Department", "Batch focus", "Advisees"]}
-              empty="No advisor accounts are registered."
-            >
-              {advisors.map((advisor) => (
-                <tr key={advisor.id}>
-                  <td>{advisor.name}</td>
-                  <td>{advisor.department || "—"}</td>
-                  <td>{advisor.batchFocus || "—"}</td>
-                  <td>{advisor.adviseeCount || 0}</td>
-                </tr>
-              ))}
-            </DataTable>
-          )}
-        </Card>
-        <Card>
           <div className="card-heading">
             <h2>Students by batch</h2>
-            <select
+            <input
               value={batch}
               onChange={(event) => setBatch(event.target.value)}
               aria-label="Batch"
-            >
-              {["60", "61", "62", "63", "64"].map((value) => (
-                <option key={value}>{value}</option>
-              ))}
-            </select>
+              placeholder="2022"
+            />
           </div>
           <DataTable
             columns={["#", "Student ID", "Name", "Advisor"]}
@@ -188,26 +239,26 @@ export function AdvisorAssignmentPage() {
             ))}
           </DataTable>
         </Card>
+        <Card>
+          <h2>Recent assignment history</h2>
+          <DataTable
+            columns={["Date", "Teacher", "Batch", "Student range", "Status"]}
+            empty="No advisor assignments exist."
+          >
+            {assignments.map((item) => (
+              <tr key={item.id || item._id}>
+                <td>{formatDate(item.createdAt)}</td>
+                <td>{item.advisorName}</td>
+                <td>{item.batch}</td>
+                <td>
+                  {item.startSerial} – {item.endSerial}
+                </td>
+                <td className="capitalize">{item.status}</td>
+              </tr>
+            ))}
+          </DataTable>
+        </Card>
       </section>
-      <Card className="space-top">
-        <h2>Recent assignment history</h2>
-        <DataTable
-          columns={["Date", "Advisor", "Batch", "Student range", "Status"]}
-          empty="No advisor assignments exist."
-        >
-          {assignments.map((item) => (
-            <tr key={item.id || item._id}>
-              <td>{formatDate(item.createdAt)}</td>
-              <td>{item.advisorName}</td>
-              <td>{item.batch}</td>
-              <td>
-                {item.startSerial} – {item.endSerial}
-              </td>
-              <td className="capitalize">{item.status}</td>
-            </tr>
-          ))}
-        </DataTable>
-      </Card>
       <Toast {...toast} onClose={close} />
     </>
   );
@@ -224,7 +275,7 @@ export function AdvisorRankingPage() {
     setLoading(true);
     try {
       const payload = await api(
-        `/portal/advisor/students${requestedBatch ? `?batch=${encodeURIComponent(requestedBatch)}` : ""}`,
+        `/portal/teacher/advisor/students${requestedBatch ? `?batch=${encodeURIComponent(requestedBatch)}` : ""}`,
       );
       const data = payload.data || {};
       setStudents(data.items || []);
@@ -248,18 +299,13 @@ export function AdvisorRankingPage() {
         title="Assigned students ranking"
         subtitle="Students are ordered by their current CGPA within your assigned batch."
         actions={
-          <select
+          <input
             value={batch}
             onChange={(event) => setBatch(event.target.value)}
             aria-label="Batch"
-          >
-            <option value="">All assigned batches</option>
-            {batches.map((item) => (
-              <option key={item} value={item}>
-                Batch {item}
-              </option>
-            ))}
-          </select>
+            placeholder="2022"
+            style={{ minWidth: 120 }}
+          />
         }
       />
       <Card>
@@ -292,7 +338,7 @@ export function AdvisorRankingPage() {
                     className="text-button"
                     onClick={() =>
                       navigate(
-                        `/advisor/student-report?studentUserId=${encodeURIComponent(student.userId)}&studentId=${encodeURIComponent(student.studentId)}`,
+                        `/teacher/advisor-report?studentUserId=${encodeURIComponent(student.userId)}&studentId=${encodeURIComponent(student.studentId)}`,
                       )
                     }
                   >
@@ -320,7 +366,7 @@ export function AdvisorStudentReportPage() {
       query.set("studentUserId", params.get("studentUserId"));
     if (params.get("studentId"))
       query.set("studentId", params.get("studentId"));
-    api(`/portal/advisor/student-report?${query}`)
+    api(`/portal/teacher/advisor/student-report?${query}`)
       .then((response) => setData(response.data || {}))
       .catch((error) => show(error.message, "error"))
       .finally(() => setLoading(false));
@@ -445,7 +491,7 @@ export function AdvisorWatchlistPage() {
   const { toast, show, close } = useToast();
   const load = () => {
     setLoading(true);
-    api("/portal/advisor/performance-watchlist")
+    api("/portal/teacher/advisor/watchlist")
       .then((payload) => setStudents(dataItems(payload)))
       .catch((error) => show(error.message, "error"))
       .finally(() => setLoading(false));
@@ -467,7 +513,7 @@ export function AdvisorWatchlistPage() {
     <>
       <PageTitle
         title="Performance watchlist"
-        subtitle="Students need follow-up when multiple academic risks are high."
+        subtitle="Students need follow-up when any current academic risk is high."
       />
       <section className="two-column">
         <Card>
@@ -553,7 +599,7 @@ export function MessagesPage({ role }) {
   const [form, setForm] = useState({
     toUserId: "",
     toName: "",
-    subject: role === "advisor" ? "Meeting schedule" : "Meeting request",
+    subject: role === "teacher" ? "Meeting schedule" : "Meeting request",
     content: "",
   });
   const [loading, setLoading] = useState(true);
@@ -562,16 +608,17 @@ export function MessagesPage({ role }) {
     setLoading(true);
     try {
       const requests = [api("/portal/messages")];
-      if (role === "advisor") requests.push(api("/portal/advisor/students"));
+      if (role === "teacher") requests.push(api("/portal/teacher/advisor/students"));
       else requests.push(api("/portal/student/advisor"));
       const [messagePayload, recipientPayload] = await Promise.all(requests);
       setMessages(dataItems(messagePayload));
-      if (role === "advisor") setRecipients(recipientPayload.data?.items || []);
+      if (role === "teacher") setRecipients(recipientPayload.data?.items || []);
       else {
         const value = recipientPayload.data?.advisor || null;
         setAdvisor(value);
         setForm((previous) => ({
           ...previous,
+          toUserId: value?.advisorUserId ? String(value.advisorUserId) : "",
           toName: value?.advisorName || "",
         }));
       }
@@ -581,7 +628,9 @@ export function MessagesPage({ role }) {
       setLoading(false);
     }
   };
-  useEffect(load, []);
+  useEffect(() => {
+    load();
+  }, [role]);
   const submit = async (event) => {
     event.preventDefault();
     try {
@@ -589,8 +638,8 @@ export function MessagesPage({ role }) {
         method: "POST",
         body: {
           ...form,
-          toRole: role === "advisor" ? "student" : "advisor",
-          channel: role === "advisor" ? "sms" : "portal",
+          toRole: role === "teacher" ? "student" : "teacher",
+          channel: role === "teacher" ? "sms" : "portal",
         },
       });
       setForm((previous) => ({ ...previous, content: "" }));
@@ -604,7 +653,7 @@ export function MessagesPage({ role }) {
     <>
       <PageTitle
         title={
-          role === "advisor"
+          role === "teacher"
             ? "Advisor SMS inbox & reply"
             : "Send message to advisor"
         }
@@ -612,14 +661,14 @@ export function MessagesPage({ role }) {
       />
       <section className="two-column">
         <Card>
-          <h2>{role === "advisor" ? "Student messages" : "Recent messages"}</h2>
+          <h2>{role === "teacher" ? "Student messages" : "Recent messages"}</h2>
           {loading ? (
             <Spinner />
           ) : (
             <DataTable
               columns={[
                 "Date",
-                role === "advisor" ? "Student" : "Direction",
+                role === "teacher" ? "Student" : "Direction",
                 "Subject",
                 "Status",
               ]}
@@ -633,7 +682,7 @@ export function MessagesPage({ role }) {
                 >
                   <td>{formatDate(message.date)}</td>
                   <td>
-                    {role === "advisor"
+                    {role === "teacher"
                       ? message.fromName
                       : `${message.from} → ${message.to}`}
                   </td>
@@ -646,10 +695,10 @@ export function MessagesPage({ role }) {
         </Card>
         <Card>
           <h2>
-            {role === "advisor" ? "Reply / send SMS" : "New advisor message"}
+            {role === "teacher" ? "Reply / send SMS" : "New advisor message"}
           </h2>
           <form onSubmit={submit} className="form-stack">
-            {role === "advisor" ? (
+            {role === "teacher" ? (
               <Label label="Student">
                 <select
                   value={form.toUserId}

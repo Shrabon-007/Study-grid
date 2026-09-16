@@ -13,14 +13,14 @@ function LegacyPageRedirect() {
   const to = {
     "login.html": "/login",
     "student-login.html": "/login?role=student",
-    "advisor-login.html": "/login?role=advisor",
+    "advisor-login.html": "/login?role=teacher",
     "admin-login.html": "/login?role=admin",
     "teacher-login.html": "/login?role=teacher",
     "student-register.html": "/register",
     "advisor-register.html": "/register",
     "admin-register.html": "/register",
     "teacher-register.html": "/register",
-    "advisor-student-profile.html": "/advisor/ranking",
+    "advisor-student-profile.html": "/teacher/advisor-ranking",
   }[legacy];
   return <Navigate to={to || "/login"} replace />;
 }
@@ -39,13 +39,6 @@ export default function App() {
     <Route path="/student/notices" element={<RolePage role="student"><NoticesPage role="student" /></RolePage>} />
     <Route path="/student/messages" element={<RolePage role="student"><MessagesPage role="student" /></RolePage>} />
     <Route path="/student/settings" element={<RolePage role="student"><SettingsPage role="student" /></RolePage>} />
-    <Route path="/advisor/dashboard" element={<RolePage role="advisor"><DashboardPage role="advisor" /></RolePage>} />
-    <Route path="/advisor/ranking" element={<RolePage role="advisor"><AdvisorRankingPage /></RolePage>} />
-    <Route path="/advisor/student-report" element={<RolePage role="advisor"><AdvisorStudentReportPage /></RolePage>} />
-    <Route path="/advisor/watchlist" element={<RolePage role="advisor"><AdvisorWatchlistPage /></RolePage>} />
-    <Route path="/advisor/messages" element={<RolePage role="advisor"><MessagesPage role="advisor" /></RolePage>} />
-    <Route path="/advisor/notices" element={<RolePage role="advisor"><NoticesPage role="advisor" /></RolePage>} />
-    <Route path="/advisor/settings" element={<RolePage role="advisor"><SettingsPage role="advisor" /></RolePage>} />
     <Route path="/admin/dashboard" element={<RolePage role="admin"><DashboardPage role="admin" /></RolePage>} />
     <Route path="/admin/assign-advisor" element={<RolePage role="admin"><AdvisorAssignmentPage /></RolePage>} />
     <Route path="/admin/notices" element={<RolePage role="admin"><NoticesPage role="admin" admin /></RolePage>} />
@@ -57,6 +50,12 @@ export default function App() {
     <Route path="/teacher/student-results" element={<RolePage role="teacher"><TeacherStudentResultsPage /></RolePage>} />
     <Route path="/teacher/notices" element={<RolePage role="teacher"><NoticesPage role="teacher" /></RolePage>} />
     <Route path="/teacher/settings" element={<RolePage role="teacher"><SettingsPage role="teacher" /></RolePage>} />
+    {/* Advisor features — now under teacher section */}
+    <Route path="/teacher/advisor-ranking" element={<RolePage role="teacher"><AdvisorRankingPage /></RolePage>} />
+    <Route path="/teacher/advisor-report" element={<RolePage role="teacher"><AdvisorStudentReportPage /></RolePage>} />
+    <Route path="/teacher/advisor-watchlist" element={<RolePage role="teacher"><AdvisorWatchlistPage /></RolePage>} />
+    <Route path="/teacher/advisor-messages" element={<RolePage role="teacher"><MessagesPage role="teacher" /></RolePage>} />
+    {/* Legacy redirects */}
     <Route path="/student-dashboard.html" element={<LegacyRedirect to="/student/dashboard" />} />
     <Route path="/student-courses.html" element={<LegacyRedirect to="/student/courses" />} />
     <Route path="/student-attendance.html" element={<LegacyRedirect to="/student/attendance" />} />
@@ -67,12 +66,12 @@ export default function App() {
     <Route path="/student-notices.html" element={<LegacyRedirect to="/student/notices" />} />
     <Route path="/student-message-advisor.html" element={<LegacyRedirect to="/student/messages" />} />
     <Route path="/student-settings.html" element={<LegacyRedirect to="/student/settings" />} />
-    <Route path="/advisor-dashboard.html" element={<LegacyRedirect to="/advisor/dashboard" />} />
-    <Route path="/advisor-student-ranking.html" element={<LegacyRedirect to="/advisor/ranking" />} />
-    <Route path="/advisor-danger-zone.html" element={<LegacyRedirect to="/advisor/watchlist" />} />
-    <Route path="/advisor-messages.html" element={<LegacyRedirect to="/advisor/messages" />} />
-    <Route path="/advisor-notices.html" element={<LegacyRedirect to="/advisor/notices" />} />
-    <Route path="/advisor-settings.html" element={<LegacyRedirect to="/advisor/settings" />} />
+    <Route path="/advisor-dashboard.html" element={<LegacyRedirect to="/teacher/dashboard" />} />
+    <Route path="/advisor-student-ranking.html" element={<LegacyRedirect to="/teacher/advisor-ranking" />} />
+    <Route path="/advisor-danger-zone.html" element={<LegacyRedirect to="/teacher/advisor-watchlist" />} />
+    <Route path="/advisor-messages.html" element={<LegacyRedirect to="/teacher/advisor-messages" />} />
+    <Route path="/advisor-notices.html" element={<LegacyRedirect to="/teacher/notices" />} />
+    <Route path="/advisor-settings.html" element={<LegacyRedirect to="/teacher/settings" />} />
     <Route path="/admin-dashboard.html" element={<LegacyRedirect to="/admin/dashboard" />} />
     <Route path="/admin-assign-advisor.html" element={<LegacyRedirect to="/admin/assign-advisor" />} />
     <Route path="/admin-notices.html" element={<LegacyRedirect to="/admin/notices" />} />

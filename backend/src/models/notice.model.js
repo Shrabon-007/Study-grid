@@ -5,7 +5,18 @@ const noticeSchema = new mongoose.Schema(
     createdByAdminId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Admin",
-      required: true,
+      index: true,
+    },
+    createdByUserId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+      index: true,
+    },
+    createdByTeacherId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Teacher",
+      default: null,
       index: true,
     },
     title: {
@@ -19,6 +30,24 @@ const noticeSchema = new mongoose.Schema(
       enum: ["students", "advisors", "students_advisors"],
       required: true,
       default: "students",
+      index: true,
+    },
+    batch: {
+      type: String,
+      trim: true,
+      default: "",
+      index: true,
+    },
+    courseId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Course",
+      default: null,
+      index: true,
+    },
+    semesterLabel: {
+      type: String,
+      trim: true,
+      default: "",
       index: true,
     },
     priority: {
