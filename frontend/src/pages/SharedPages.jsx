@@ -6,10 +6,10 @@ import { Card, DataTable, EmptyState, NoticeBadge, PageTitle, Spinner, Toast, us
 import { useAuth } from "../context/AuthContext";
 
 const dashboardActions = {
-  student: [["Courses", "Manage your running-semester courses", "/student/courses", "CR"], ["Attendance", "Track attendance and predicted marks", "/student/attendance", "AT"], ["CT Marks", "Review CT performance", "/student/ct-marks", "CT"], ["Semester CGPA", "Save result history", "/student/semester-cgpa", "CG"], ["Message advisor", "Request a meeting or send a question", "/student/messages", "MS"]],
-  advisor: [["Student ranking", "Review assigned students", "/advisor/ranking", "RK"], ["Watchlist", "Follow up with at-risk students", "/advisor/watchlist", "WL"], ["Messages", "Reply to student messages", "/advisor/messages", "MS"]],
-  admin: [["Assign advisor", "Assign an advisor to a student range", "/admin/assign-advisor", "AS"], ["Post notice", "Share an academic notice", "/admin/notices", "NT"]],
-  teacher: [["My courses", "Create and organize course lists", "/teacher/courses", "CR"], ["Take attendance", "Record a section attendance session", "/teacher/attendance", "AT"], ["Update CT marks", "Enter section CT marks", "/teacher/ct-marks", "CT"], ["Student results", "Review attendance and CT results for a section", "/teacher/student-results", "RS"]],
+  student: [["Courses", "Manage your running-semester courses", "/student/courses", "CR"], ["Attendance", "Track attendance and predicted marks", "/student/attendance", "AT"], ["CT Marks", "Review CT performance", "/student/ct-marks", "CT"], ["Semester CGPA", "Save result history", "/student/semester-cgpa", "CG"], ["Message advisor", "Request a meeting or send a question", "/student/messages", "MS"], ["Study Grid assistant", "Ask about your courses and academic records", "/student/assistant", "AI"]],
+  advisor: [["Student ranking", "Review assigned students", "/advisor/ranking", "RK"], ["Watchlist", "Follow up with at-risk students", "/advisor/watchlist", "WL"], ["Messages", "Reply to student messages", "/advisor/messages", "MS"], ["Study Grid assistant", "Ask about your permitted advisor data", "/advisor/assistant", "AI"]],
+  admin: [["Assign advisor", "Assign an advisor to a student range", "/admin/assign-advisor", "AS"], ["Post notice", "Share an academic notice", "/admin/notices", "NT"], ["Study Grid assistant", "Ask about system records and counts", "/admin/assistant", "AI"]],
+  teacher: [["My courses", "Create and organize course lists", "/teacher/courses", "CR"], ["Take attendance", "Record a section attendance session", "/teacher/attendance", "AT"], ["Update CT marks", "Enter section CT marks", "/teacher/ct-marks", "CT"], ["Student results", "Review attendance and CT results for a section", "/teacher/student-results", "RS"], ["Study Grid assistant", "Ask about your teaching data", "/teacher/assistant", "AI"]],
 };
 
 export function DashboardPage({ role }) {

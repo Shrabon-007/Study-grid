@@ -4,6 +4,7 @@ import { LoginPage, RegisterPage } from "./pages/AuthPages";
 import { DashboardPage, NoticesPage, SettingsPage } from "./pages/SharedPages";
 import { AttendancePage, CtMarksPage, CumulativeCgpaPage, RunningCgpaPage, SemesterCgpaPage, StudentCoursesPage } from "./pages/StudentPages";
 import { AiCgpaPredictorPage } from "./pages/AiCgpaPredictorPage";
+import { GroundedChatPage } from "./pages/GroundedChatPage";
 import { AdvisorAssignmentPage, AdvisorRankingPage, AdvisorStudentReportPage, AdvisorWatchlistPage, MessagesPage } from "./pages/AdminAdvisorPages";
 import { TeacherAttendancePage, TeacherCoursesPage, TeacherCtMarksPage, TeacherStudentResultsPage } from "./pages/TeacherPages";
 
@@ -35,6 +36,7 @@ export default function App() {
     <Route path="/student/attendance" element={<RolePage role="student"><AttendancePage /></RolePage>} />
     <Route path="/student/ct-marks" element={<RolePage role="student"><CtMarksPage /></RolePage>} />
     <Route path="/student/ai-predictor" element={<RolePage role="student"><AiCgpaPredictorPage /></RolePage>} />
+    <Route path="/student/assistant" element={<RolePage role="student"><GroundedChatPage role="student" /></RolePage>} />
     <Route path="/student/semester-cgpa" element={<RolePage role="student"><SemesterCgpaPage /></RolePage>} />
     <Route path="/student/running-cgpa" element={<RolePage role="student"><RunningCgpaPage /></RolePage>} />
     <Route path="/student/cumulative-cgpa" element={<RolePage role="student"><CumulativeCgpaPage /></RolePage>} />
@@ -48,10 +50,12 @@ export default function App() {
     <Route path="/advisor/messages" element={<RolePage role="advisor"><MessagesPage role="advisor" /></RolePage>} />
     <Route path="/advisor/notices" element={<RolePage role="advisor"><NoticesPage role="advisor" /></RolePage>} />
     <Route path="/advisor/settings" element={<RolePage role="advisor"><SettingsPage role="advisor" /></RolePage>} />
+    <Route path="/advisor/assistant" element={<RolePage role="advisor"><GroundedChatPage role="advisor" /></RolePage>} />
     <Route path="/admin/dashboard" element={<RolePage role="admin"><DashboardPage role="admin" /></RolePage>} />
     <Route path="/admin/assign-advisor" element={<RolePage role="admin"><AdvisorAssignmentPage /></RolePage>} />
     <Route path="/admin/notices" element={<RolePage role="admin"><NoticesPage role="admin" admin /></RolePage>} />
     <Route path="/admin/settings" element={<RolePage role="admin"><SettingsPage role="admin" /></RolePage>} />
+    <Route path="/admin/assistant" element={<RolePage role="admin"><GroundedChatPage role="admin" /></RolePage>} />
     <Route path="/teacher/dashboard" element={<RolePage role="teacher"><DashboardPage role="teacher" /></RolePage>} />
     <Route path="/teacher/courses" element={<RolePage role="teacher"><TeacherCoursesPage /></RolePage>} />
     <Route path="/teacher/attendance" element={<RolePage role="teacher"><TeacherAttendancePage /></RolePage>} />
@@ -59,6 +63,7 @@ export default function App() {
     <Route path="/teacher/student-results" element={<RolePage role="teacher"><TeacherStudentResultsPage /></RolePage>} />
     <Route path="/teacher/notices" element={<RolePage role="teacher"><NoticesPage role="teacher" /></RolePage>} />
     <Route path="/teacher/settings" element={<RolePage role="teacher"><SettingsPage role="teacher" /></RolePage>} />
+    <Route path="/teacher/assistant" element={<RolePage role="teacher"><GroundedChatPage role="teacher" /></RolePage>} />
     <Route path="/student-dashboard.html" element={<LegacyRedirect to="/student/dashboard" />} />
     <Route path="/student-courses.html" element={<LegacyRedirect to="/student/courses" />} />
     <Route path="/student-attendance.html" element={<LegacyRedirect to="/student/attendance" />} />

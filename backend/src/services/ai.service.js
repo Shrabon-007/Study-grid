@@ -424,6 +424,105 @@ Respond ONLY with valid JSON in this exact structure:
   }
 }
 
+function buildLocalChatAnswer(question, context) {
+  const normalized = String(question || "").toLowerCase();
+  const { role, courses = [], attendance = [], ctMarks = [], cgpa = [], notices = [], counts = {} } = context;
+
+  if (role === "student" && (normalized.includes("condition") || normalized.includes("improve") || normalized.includes("performance") || normalized.includes("progress"))) {
+    const course = courses.find((item) => {
+      const name = String(item.name || "").toLowerCase();
+      const acronym = name.split(/\s+/).filter(Boolean).map((word) => word[0]).join("");
+      const terms = [item.code, item.name, acronym].filter(Boolean).map((value) => String(value).toLowerCase());
+      return terms.some((term) => term.length > 2 && normalized.includes(term));
+    }) || (courses.length === 1 ? courses[0] : null);
+
+    if (!course) {
+      return courses.length
+        ? `I found ${courses.length} enrolled course(s), but I could not identify which one you mean. Mention the course code or name, for example ${courses[0].code}.`
+        : "I could not find an enrolled course for your account.";
+    }
+
+    const courseCode = String(course.code || "").toLowerCase();
+    const courseAttendance = attendance.find((item) => String(item.courseCode || "").toLowerCase() === courseCode);
+    const courseCt = ctMarks.find((item) => String(item.courseCode || "").toLowerCase() === courseCode);
+    const attendancePercent = courseAttendance ? Number(courseAttendance.percentage || 0) : null;
+    const ctPercent = courseCt && Number(courseCt.maxMarks || 0) > 0
+      ? Number(((Number(courseCt.total || 0) / Number(courseCt.maxMarks)) * 100).toFixed(1))
+      : null;
+    const strengths = [];
+    const improvements = [];
+
+    if (attendancePercent === null) improvements.push("no published attendance record is available yet");
+    else if (attendancePercent < 60) improvements.push(`attendance is critical at ${attendancePercent}%`);
+    else if (attendancePercent < 75) improvements.push(`attendance needs improvement at ${attendancePercent}%`);
+    else strengths.push(`attendance is ${attendancePercent}%`);
+
+    if (ctPercent === null) improvements.push("no published CT result is available yet");
+    else if (ctPercent < 50) improvements.push(`CT performance is low at ${ctPercent}%`);
+    else if (ctPercent < 65) improvements.push(`CT performance can improve from ${ctPercent}%`);
+    else strengths.push(`CT performance is ${ctPercent}%`);
+
+    const condition = improvements.length ? "needs attention" : "currently stable";
+    const strengthText = strengths.length ? ` Strengths: ${strengths.join(" and ")}.` : "";
+    return `For ${course.code}${course.name ? ` (${course.name})` : ""}, your current condition ${condition}.${strengthText} Improve by focusing on ${improvements.join("; ")}. Keep checking newly published teacher records because this analysis uses the latest data currently stored in Study Grid.`;
+  }
+
+  if (role === "student" && (normalized.includes("attendance") || normalized.includes("absent"))) {
+    if (!attendance.length) return "I could not find published attendance data for your account.";
+    return `Your published attendance is: ${attendance.map((item) => `${item.courseCode}: ${item.percentage}%`).join("; ")}.`;
+  }
+  if (role === "student" && (normalized.includes("ct") || normalized.includes("mark"))) {
+    if (!ctMarks.length) return "I could not find published CT marks for your account.";
+    return `Your published CT results are: ${ctMarks.map((item) => `${item.courseCode}: ${item.total}/${item.maxMarks}`).join("; ")}.`;
+  }
+  if (role === "student" && (normalized.includes("course") || normalized.includes("enroll"))) {
+    return courses.length ? `You have ${courses.length} course record(s): ${courses.map((item) => item.code).join(", ")}.` : "You have no course records yet.";
+  }
+  if (role === "student" && (normalized.includes("cgpa") || normalized.includes("gpa"))) {
+    return cgpa.length ? `Your semester CGPA records are: ${cgpa.map((item) => `${item.semesterLabel}: ${item.cgpa}`).join("; ")}.` : "You have no saved semester CGPA records yet.";
+  }
+  if (normalized.includes("notice")) {
+    return notices.length ? `There are ${notices.length} visible notice(s). Latest: ${notices[0].title}.` : "There are no visible notices for your account.";
+  }
+  if (role === "admin" && (normalized.includes("how many") || normalized.includes("count") || normalized.includes("account"))) {
+    return `Current database counts: ${counts.users || 0} user accounts, ${counts.students || 0} students, ${counts.teachers || 0} teachers, ${counts.admins || 0} admins, and ${counts.courses || 0} courses.`;
+  }
+  return `I can answer questions about your permitted Study Grid data, such as courses, attendance, CT marks, CGPA, notices, and role-specific records. I do not answer unrelated questions or invent data.`;
+}
+
+async function generateGroundedChatAnswer(question, context) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey || apiKey.trim() === "" || apiKey === "replace_with_free_gemini_api_key") {
+    return { source: "local-grounded", answer: buildLocalChatAnswer(question, context) };
+  }
+
+  const prompt = `You are the Study Grid database assistant. Answer only from the supplied JSON context. Never invent records, expose secrets, reveal another user's private data, or answer unrelated questions. If the context does not support an answer, say so clearly. Keep the answer concise and practical.
+
+User role: ${context.role}
+Question: ${question}
+Database context:
+${JSON.stringify(context)}
+
+Return only JSON: {"answer":"..."}`;
+
+  try {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { responseMimeType: "application/json", temperature: 0.1 } }),
+      signal: AbortSignal.timeout(7000),
+    });
+    if (!response.ok) throw new Error(`Gemini returned ${response.status}`);
+    const data = await response.json();
+    const parsed = JSON.parse(data?.candidates?.[0]?.content?.parts?.[0]?.text || "{}");
+    if (!parsed.answer) throw new Error("Gemini returned no answer");
+    return { source: "gemini-grounded", answer: parsed.answer };
+  } catch (error) {
+    console.warn("Grounded chatbot fallback:", error.message);
+    return { source: "local-grounded", answer: buildLocalChatAnswer(question, context) };
+  }
+}
+
 module.exports = {
   GRADE_TIERS,
   getAttendanceMarkForPercentage,
@@ -434,4 +533,5 @@ module.exports = {
   analyzeCourseFeasibility,
   generateHeuristicAdvice,
   generateAiCoaching,
+  generateGroundedChatAnswer,
 };
