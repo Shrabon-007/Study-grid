@@ -3,7 +3,7 @@ import { PortalLayout, ProtectedRoute } from "./components/ui";
 import { LoginPage, RegisterPage } from "./pages/AuthPages";
 import { DashboardPage, NoticesPage, SettingsPage } from "./pages/SharedPages";
 import { AttendancePage, CtMarksPage, CumulativeCgpaPage, RunningCgpaPage, SemesterCgpaPage, StudentCoursesPage } from "./pages/StudentPages";
-import { AdvisorAssignmentPage, AdvisorRankingPage, AdvisorStudentReportPage, AdvisorWatchlistPage, MessagesPage } from "./pages/AdminAdvisorPages";
+import { AdminAccountsPage, AdvisorAssignmentPage, AdvisorRankingPage, AdvisorStudentReportPage, AdvisorWatchlistPage, MessagesPage } from "./pages/AdminAdvisorPages";
 import { TeacherAttendancePage, TeacherCoursesPage, TeacherCtMarksPage, TeacherStudentResultsPage } from "./pages/TeacherPages";
 
 function RolePage({ role, children }) { return <ProtectedRoute role={role}><PortalLayout>{children}</PortalLayout></ProtectedRoute>; }
@@ -41,6 +41,7 @@ export default function App() {
     <Route path="/student/settings" element={<RolePage role="student"><SettingsPage role="student" /></RolePage>} />
     <Route path="/admin/dashboard" element={<RolePage role="admin"><DashboardPage role="admin" /></RolePage>} />
     <Route path="/admin/assign-advisor" element={<RolePage role="admin"><AdvisorAssignmentPage /></RolePage>} />
+    <Route path="/admin/accounts" element={<RolePage role="admin"><AdminAccountsPage /></RolePage>} />
     <Route path="/admin/notices" element={<RolePage role="admin"><NoticesPage role="admin" admin /></RolePage>} />
     <Route path="/admin/settings" element={<RolePage role="admin"><SettingsPage role="admin" /></RolePage>} />
     <Route path="/teacher/dashboard" element={<RolePage role="teacher"><DashboardPage role="teacher" /></RolePage>} />

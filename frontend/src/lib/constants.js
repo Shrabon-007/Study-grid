@@ -29,7 +29,7 @@ export const NAV_ITEMS = {
     ["Notices", "/student/notices"], ["Messages", "/student/messages"], ["Settings", "/student/settings"],
   ],
   admin: [
-    ["Dashboard", "/admin/dashboard"], ["Teacher management", "/admin/assign-advisor"],
+    ["Dashboard", "/admin/dashboard"], ["Accounts", "/admin/accounts"], ["Teacher management", "/admin/assign-advisor"],
     ["Notices", "/admin/notices"], ["Settings", "/admin/settings"],
   ],
   teacher: [

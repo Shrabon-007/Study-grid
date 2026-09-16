@@ -74,6 +74,12 @@ const noticeSchema = new mongoose.Schema(
       default: Date.now,
       index: true,
     },
+    hiddenForUserIds: {
+      type: [mongoose.Schema.Types.ObjectId],
+      ref: "User",
+      default: [],
+      index: true,
+    },
   },
   {
     timestamps: true,

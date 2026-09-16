@@ -1090,7 +1090,11 @@ const getNotices = async (req, res) => {
     const isTeacherAdvisor = role === "teacher" && Boolean(ctx.teacher?.isAdvisor || (await Teacher.findOne({ userId: ctx.user._id, isAdvisor: true })));
     const targets = isTeacherAdvisor ? ["advisors", "students_advisors"] : role === "student" ? ["students", "students_advisors"] : ["students", "advisors", "students_advisors"];
 
-    const noticeFilter = { target: { $in: targets }, status: { $ne: "archived" } };
+    const noticeFilter = {
+      target: { $in: targets },
+      status: { $ne: "archived" },
+      hiddenForUserIds: { $ne: ctx.user._id },
+    };
     if (role === "student" && ctx.student) {
       noticeFilter.$or = [
         { batch: { $exists: false } },
@@ -2046,7 +2050,10 @@ const getMessages = async (req, res) => {
     }
 
     const items = await Message.find({
-      $or: [{ fromUserId: ctx.user._id }, { toUserId: ctx.user._id }],
+      $and: [
+        { $or: [{ fromUserId: ctx.user._id }, { toUserId: ctx.user._id }] },
+        { hiddenForUserIds: { $ne: ctx.user._id } },
+      ],
     })
       .sort({ createdAt: -1 })
       .limit(100)
@@ -2069,6 +2076,37 @@ const getMessages = async (req, res) => {
     return res.status(200).json({ success: true, data: { items: mapped } });
   } catch (error) {
     return res.status(500).json({ success: false, message: "Could not load messages.", error: error.message });
+  }
+};
+
+const clearUserHistory = async (req, res) => {
+  try {
+    const ctx = await withContext(req);
+    if (!ctx.user) {
+      return res.status(401).json({ success: false, message: "Unauthorized." });
+    }
+
+    const [messages, notices] = await Promise.all([
+      Message.updateMany(
+        { $or: [{ fromUserId: ctx.user._id }, { toUserId: ctx.user._id }] },
+        { $addToSet: { hiddenForUserIds: ctx.user._id } },
+      ),
+      Notice.updateMany(
+        { hiddenForUserIds: { $ne: ctx.user._id } },
+        { $addToSet: { hiddenForUserIds: ctx.user._id } },
+      ),
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      message: "Your visible notices and message history were cleared.",
+      data: {
+        messages: messages.modifiedCount || 0,
+        notices: notices.modifiedCount || 0,
+      },
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Could not clear your history.", error: error.message });
   }
 };
 
@@ -3020,6 +3058,103 @@ const getAdminTeachers = async (req, res) => {
   }
 };
 
+const getAdminAccounts = async (req, res) => {
+  try {
+    const ctx = await withContext(req);
+    if (!ensureRole(res, ctx.user, ["admin"])) return;
+
+    const users = await User.find({}).select("_id name email role createdAt lastLoginAt").sort({ createdAt: -1 }).lean();
+    const [students, teachers, admins] = await Promise.all([
+      Student.find({}).select("userId studentId batch department").lean(),
+      Teacher.find({}).select("userId teacherId username department isAdvisor").lean(),
+      Admin.find({}).select("userId").lean(),
+    ]);
+    const profiles = new Map();
+    students.forEach((item) => profiles.set(String(item.userId), { type: "student", identifier: item.studentId, batch: item.batch, department: item.department }));
+    teachers.forEach((item) => profiles.set(String(item.userId), { type: "teacher", identifier: item.teacherId, batch: item.batchFocus, department: item.department, isAdvisor: item.isAdvisor }));
+    admins.forEach((item) => profiles.set(String(item.userId), { type: "admin" }));
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        items: users.map((user) => ({
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          createdAt: user.createdAt,
+          lastLoginAt: user.lastLoginAt,
+          profile: profiles.get(String(user._id)) || null,
+          isCurrentUser: String(user._id) === String(ctx.user._id),
+        })),
+      },
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Could not load accounts.", error: error.message });
+  }
+};
+
+const deleteAdminAccount = async (req, res) => {
+  try {
+    const ctx = await withContext(req);
+    if (!ensureRole(res, ctx.user, ["admin"])) return;
+
+    const userId = normalize(req.params.userId);
+    if (!userId || userId === String(ctx.user._id)) {
+      return res.status(400).json({ success: false, message: "You cannot delete the currently signed-in admin account." });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ success: false, message: "Account not found." });
+
+    const profile = user.role === "student"
+      ? await Student.findOne({ userId: user._id })
+      : user.role === "teacher"
+        ? await Teacher.findOne({ userId: user._id })
+        : await Admin.findOne({ userId: user._id });
+
+    if (user.role === "student" && profile) {
+      await Promise.all([
+        StudentCourse.deleteMany({ studentId: profile._id }),
+        Attendance.deleteMany({ studentId: profile._id }),
+        CtMark.deleteMany({ studentId: profile._id }),
+        SemesterSetup.deleteMany({ studentId: profile._id }),
+        SemesterCgpa.deleteMany({ studentId: profile._id }),
+      ]);
+    }
+
+    if (user.role === "teacher" && profile) {
+      const courses = await Course.find({ teacherId: profile._id }).select("_id");
+      const courseIds = courses.map((course) => course._id);
+      await Promise.all([
+        Course.deleteMany({ teacherId: profile._id }),
+        TeacherAttendanceSession.deleteMany({ teacherId: profile._id }),
+        AdvisorAssignment.deleteMany({ advisorTeacherId: profile._id }),
+        Notice.deleteMany({ createdByTeacherId: profile._id }),
+        Attendance.deleteMany({ teacherId: profile._id }),
+        CtMark.deleteMany({ teacherId: profile._id }),
+        StudentCourse.deleteMany({ courseId: { $in: courseIds } }),
+      ]);
+    }
+
+    const adminId = user.role === "admin" && profile ? profile._id : null;
+    await Promise.all([
+      Message.deleteMany({ $or: [{ fromUserId: user._id }, { toUserId: user._id }] }),
+      Notice.deleteMany({ createdByUserId: user._id }),
+      adminId ? Notice.deleteMany({ createdByAdminId: adminId }) : Promise.resolve(),
+      Student.deleteOne({ userId: user._id }),
+      Teacher.deleteOne({ userId: user._id }),
+      Admin.deleteOne({ userId: user._id }),
+      Advisor.deleteOne({ userId: user._id }),
+      User.deleteOne({ _id: user._id }),
+    ]);
+
+    return res.status(200).json({ success: true, message: `${user.name} account was permanently deleted.` });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Could not delete account.", error: error.message });
+  }
+};
+
 module.exports = {
   getStudentCourses,
   addStudentCourse,
@@ -3049,6 +3184,7 @@ module.exports = {
   createAdvisorAssignment,
   getMessages,
   sendMessage,
+  clearUserHistory,
   getTeacherCourses,
   saveTeacherCourse,
   updateTeacherCourse,
@@ -3061,4 +3197,6 @@ module.exports = {
   saveTeacherCtMarksBySection,
   toggleTeacherAdvisor,
   getAdminTeachers,
+  getAdminAccounts,
+  deleteAdminAccount,
 };

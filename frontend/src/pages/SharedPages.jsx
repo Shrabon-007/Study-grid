@@ -193,6 +193,16 @@ export function NoticesPage({ role, admin = false }) {
       .then((response) => setCourses(dataItems(response)))
       .catch((error) => show(error.message, "error"));
   }, [role]);
+  const clearHistory = async () => {
+    if (!window.confirm("Clear your visible notices and message history? This will not delete them for other users.")) return;
+    try {
+      await api("/portal/history", { method: "DELETE" });
+      show("Your visible history was cleared.");
+      load();
+    } catch (error) {
+      show(error.message, "error");
+    }
+  };
   const submit = async (event) => {
     event.preventDefault();
     try {
@@ -214,6 +224,7 @@ export function NoticesPage({ role, admin = false }) {
             ? "Create notices for the academic community."
             : "Open a notice to see its complete details."
         }
+        actions={<button className="btn btn-outline" type="button" onClick={clearHistory}>Clear visible history</button>}
       />
       {(admin || role === "teacher") && (
         <Card className="space-bottom">

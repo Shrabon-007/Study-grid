@@ -30,6 +30,7 @@ const {
   createAdvisorAssignment,
   getMessages,
   sendMessage,
+  clearUserHistory,
   getTeacherCourses,
   saveTeacherCourse,
   updateTeacherCourse,
@@ -42,6 +43,8 @@ const {
   saveTeacherCtMarksBySection,
   toggleTeacherAdvisor,
   getAdminTeachers,
+  getAdminAccounts,
+  deleteAdminAccount,
 } = require("../controllers/portal.controller");
 
 const router = express.Router();
@@ -89,9 +92,12 @@ router.get("/admin/students", getAdminStudentsByBatch);
 router.post("/admin/assignments", createAdvisorAssignment);
 router.get("/admin/teachers", getAdminTeachers);
 router.put("/admin/teachers/:teacherId/advisor", toggleTeacherAdvisor);
+router.get("/admin/accounts", getAdminAccounts);
+router.delete("/admin/accounts/:userId", deleteAdminAccount);
 
 router.get("/messages", getMessages);
 router.post("/messages", sendMessage);
+router.delete("/history", clearUserHistory);
 
 router.get("/teacher/courses", getTeacherCourses);
 router.post("/teacher/courses", saveTeacherCourse);

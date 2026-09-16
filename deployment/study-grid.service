@@ -1,0 +1,16 @@
+[Unit]
+Description=Study Grid API
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/var/www/study-grid/backend
+EnvironmentFile=/var/www/study-grid/backend/.env
+ExecStart=/usr/bin/node /var/www/study-grid/backend/src/server.js
+Restart=always
+RestartSec=5
+User=studygrid
+Group=studygrid
+
+[Install]
+WantedBy=multi-user.target

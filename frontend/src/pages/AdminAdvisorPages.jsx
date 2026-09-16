@@ -264,6 +264,89 @@ export function AdvisorAssignmentPage() {
   );
 }
 
+export function AdminAccountsPage() {
+  const [accounts, setAccounts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const { toast, show, close } = useToast();
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const payload = await api("/portal/admin/accounts");
+      setAccounts(dataItems(payload));
+    } catch (error) {
+      show(error.message, "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  const remove = async (account) => {
+    if (account.isCurrentUser) return;
+    const confirmed = window.confirm(
+      `Permanently delete ${account.name}'s ${account.role} account? Linked profile and academic records will also be removed.`,
+    );
+    if (!confirmed) return;
+    try {
+      await api(`/portal/admin/accounts/${account.id}`, { method: "DELETE" });
+      show(`${account.name}'s account was permanently deleted.`);
+      load();
+    } catch (error) {
+      show(error.message, "error");
+    }
+  };
+
+  return (
+    <>
+      <PageTitle
+        title="Account management"
+        subtitle="View every Student, Teacher, and Admin account. Deletion permanently removes linked records."
+      />
+      <Card>
+        {loading ? (
+          <Spinner />
+        ) : (
+          <DataTable
+            columns={["Account", "Role", "Profile", "Created", "Action"]}
+            empty="No accounts registered."
+          >
+            {accounts.map((account) => (
+              <tr key={account.id}>
+                <td>
+                  <strong>{account.name}</strong>
+                  <small>{account.email}</small>
+                </td>
+                <td><span className={`badge priority-${account.role === "admin" ? "important" : "normal"}`}>{account.role}</span></td>
+                <td>
+                  {account.profile?.identifier || "—"}
+                  {account.profile?.batch ? <small>Batch {account.profile.batch}</small> : null}
+                </td>
+                <td>{formatDate(account.createdAt)}</td>
+                <td>
+                  <button
+                    type="button"
+                    className="btn btn-danger"
+                    disabled={account.isCurrentUser}
+                    title={account.isCurrentUser ? "The current admin cannot be deleted" : "Delete account permanently"}
+                    onClick={() => remove(account)}
+                  >
+                    {account.isCurrentUser ? "Current account" : "Delete permanently"}
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </DataTable>
+        )}
+      </Card>
+      <Toast {...toast} onClose={close} />
+    </>
+  );
+}
+
 export function AdvisorRankingPage() {
   const [students, setStudents] = useState([]);
   const [batches, setBatches] = useState([]);
@@ -649,6 +732,16 @@ export function MessagesPage({ role }) {
       show(error.message, "error");
     }
   };
+  const clearHistory = async () => {
+    if (!window.confirm("Clear your visible notices and message history? This will not delete them for other users.")) return;
+    try {
+      await api("/portal/history", { method: "DELETE" });
+      show("Your visible history was cleared.");
+      load();
+    } catch (error) {
+      show(error.message, "error");
+    }
+  };
   return (
     <>
       <PageTitle
@@ -658,6 +751,7 @@ export function MessagesPage({ role }) {
             : "Send message to advisor"
         }
         subtitle="Keep academic communication in one place."
+        actions={<button className="btn btn-outline" type="button" onClick={clearHistory}>Clear visible history</button>}
       />
       <section className="two-column">
         <Card>

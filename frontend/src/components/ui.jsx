@@ -1,5 +1,5 @@
 import { Link, NavLink, Navigate, useLocation, useNavigate } from "react-router-dom";
-import { useState } from "react";
+import { Children, cloneElement, useState } from "react";
 import { api, initials } from "../lib/api";
 import { ADVISOR_NAV_ITEMS, DASHBOARD_PATHS, NAV_ITEMS, ROLE_LABELS } from "../lib/constants";
 import { useAuth } from "../context/AuthContext";
@@ -61,11 +61,21 @@ export function NoticeBadge({ priority = "normal" }) { return <span className={`
 export function RiskBadge({ value = "—" }) { return <span className={`badge risk-${String(value).toLowerCase()}`}>{value}</span>; }
 
 export function DataTable({ columns, children, empty, className = "" }) {
+  const labels = columns.map((column) => typeof column === "string" ? column : column.label);
+  const rows = Children.map(children, (row) => {
+    if (!row || !row.props?.children) return row;
+    const cells = Children.map(row.props.children, (cell, index) => {
+      if (!cell || typeof cell !== "object") return cell;
+      return cloneElement(cell, { "data-label": labels[index] || "" });
+    });
+    return cloneElement(row, {}, cells);
+  });
+
   return <div className={`table-wrap ${className}`}><table><thead><tr>{columns.map((column) => {
     const key = typeof column === "string" ? column : column.key;
     const content = typeof column === "string" ? column : column.label;
     return <th key={key}>{content}</th>;
-  })}</tr></thead><tbody>{children || <tr><td colSpan={columns.length}><EmptyState>{empty}</EmptyState></td></tr>}</tbody></table></div>;
+  })}</tr></thead><tbody>{rows || <tr><td colSpan={columns.length}><EmptyState>{empty}</EmptyState></td></tr>}</tbody></table></div>;
 }
 
 export function Toast({ message, type = "success", onClose }) {
