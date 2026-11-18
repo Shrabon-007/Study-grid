@@ -23,7 +23,11 @@ export function GroundedChatPage({ role }) {
     setQuestion("");
     setLoading(true);
     try {
-      const response = await api("/portal/ai/chat", { method: "POST", body: { question: value } });
+      const history = messages.slice(-8).map((message) => ({
+        role: message.type === "question" ? "user" : "assistant",
+        text: message.text,
+      }));
+      const response = await api("/portal/ai/chat", { method: "POST", body: { question: value, history } });
       setMessages((current) => [...current, { type: "answer", text: response.data?.answer || "No answer was returned.", source: response.data?.source }]);
     } catch (error) {
       show(error.message, "error");
@@ -65,6 +69,8 @@ export function GroundedChatPage({ role }) {
                       ? "Grounded Hugging Face response"
                       : message.source === "gemini-grounded"
                         ? "Grounded Gemini response"
+                        : message.source === "verified-analysis"
+                          ? "Verified database analysis"
                         : "Local database response"}
                   </small>
                 )}

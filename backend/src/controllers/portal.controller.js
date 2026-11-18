@@ -18,6 +18,13 @@ const TeacherAttendanceSession = require("../models/teacher-attendance-session.m
 
 const normalize = (value) => String(value || "").trim();
 const normalizeLower = (value) => normalize(value).toLowerCase();
+const normalizeSemesterLabel = (value) =>
+  normalizeLower(value).replace(/[–—]/g, "-").replace(/\s+/g, " ");
+
+const semesterOrder = (value) => {
+  const match = normalizeSemesterLabel(value).match(/level-(\d+)\s+term-(\d+)/);
+  return match ? Number(match[1]) * 2 + Number(match[2]) : 0;
+};
 
 const escapeRegex = (value) => String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -124,7 +131,13 @@ const getAttendanceRisk = (percentage, classesHeld = 0) => {
   return "critical";
 };
 
-const getCtPerformance = (earned, maxMarks) => {
+const getCtPerformance = (earned, maxMarks, occurredCtCount = 0) => {
+  if (occurredCtCount > 0) {
+    const ratio = Number(earned || 0) / (20 * occurredCtCount);
+    if (ratio >= 0.8) return "strong";
+    if (ratio >= 0.6) return "average";
+    return "low";
+  }
   if (!maxMarks || earned === 0) return "average";
   const ratio = earned / maxMarks;
   if (ratio >= 0.8) return "strong";
@@ -640,9 +653,30 @@ const getStudentAttendance = async (req, res) => {
     if (semesterLabel) query.semesterLabel = semesterLabel;
 
     const rows = await Attendance.find(query).populate("courseId").sort({ updatedAt: -1 });
-    const items = rows.map((row) => {
+    const items = await Promise.all(rows.map(async (row) => {
       const credit = row.courseId ? row.courseId.credit : 0;
       const courseType = row.courseId ? row.courseId.courseType : "theory";
+      const totalClasses = await TeacherAttendanceSession.countDocuments({
+        courseId: row.courseId?._id,
+        ...(row.section ? { section: row.section } : {}),
+        ...(row.batch ? { batch: normalizeBatchValue(row.batch) } : {}),
+      });
+      let classStates = Array.isArray(row.classStates) ? row.classStates.slice() : [];
+      if (totalClasses > classStates.length) {
+        classStates = [
+          ...Array(totalClasses - classStates.length).fill("-"),
+          ...classStates,
+        ];
+      } else if (totalClasses > 0 && classStates.length > totalClasses) {
+        classStates = classStates.slice(-totalClasses);
+      }
+      const present = classStates.filter((state) => state === "P").length;
+      const held = classStates.filter((state) => state === "P" || state === "A").length;
+      const percentage = totalClasses
+        ? Math.round((present / totalClasses) * 100)
+        : (held ? Math.round((present / held) * 100) : Number(row.percentage || 0));
+      const predictedMark = getAttendanceMark(percentage, credit, courseType);
+      const risk = getAttendanceRisk(percentage, totalClasses);
       return {
         id: row._id,
         semesterLabel: row.semesterLabel,
@@ -655,15 +689,15 @@ const getStudentAttendance = async (req, res) => {
               courseType: row.courseId.courseType,
             }
           : null,
-        classStates: row.classStates,
-        classesHeld: row.classesHeld,
-        attended: row.attended,
-        percentage: row.percentage,
-        predictedMark: row.predictedMark,
+        classStates,
+        classesHeld: totalClasses || row.classesHeld,
+        attended: present,
+        percentage,
+        predictedMark,
         maxMark: getAttendanceMaxMark(credit, courseType),
-        risk: row.risk,
+        risk,
       };
-    });
+    }));
 
     return res.status(200).json({ success: true, data: { items } });
   } catch (error) {
@@ -818,9 +852,15 @@ const saveStudentCtMarks = async (req, res) => {
     const policy = getCtPolicy(course.courseType, course.credit);
     const values = [ct1, ct2, ct3, ct4, ct5];
     const activeValues = values.slice(0, policy.totalCt);
+    const occurredValues = activeValues.filter((value) => value > 0);
     const sorted = activeValues.slice().sort((a, b) => b - a);
     const total = sorted.slice(0, policy.bestCount).reduce((sum, value) => sum + value, 0);
-    const performance = getCtPerformance(total, policy.maxMarks);
+    const occurredTotal = occurredValues.reduce((sum, value) => sum + value, 0);
+    const performance = getCtPerformance(
+      occurredTotal,
+      policy.maxMarks,
+      occurredValues.length,
+    );
 
     const item = await CtMark.findOneAndUpdate(
       { studentId: ctx.student._id, courseId: course._id, semesterLabel },
@@ -1362,6 +1402,11 @@ const getAdvisorStudentsByBatch = async (req, res) => {
 
     const studentIds = matchedStudents.map((student) => student._id);
     const cgpaRows = await SemesterCgpa.find({ studentId: { $in: studentIds } }).sort({ updatedAt: -1 });
+    cgpaRows.sort((left, right) => {
+      const orderDifference = semesterOrder(right.semesterLabel) - semesterOrder(left.semesterLabel);
+      if (orderDifference) return orderDifference;
+      return new Date(right.updatedAt || 0) - new Date(left.updatedAt || 0);
+    });
 
     const cgpaMap = new Map();
     cgpaRows.forEach((row) => {
@@ -1655,46 +1700,105 @@ const getAdvisorStudentReport = async (req, res) => {
       .filter(Boolean)
       .sort((left, right) => new Date(right.updatedAt || 0) - new Date(left.updatedAt || 0))[0];
     const currentSemesterLabel = normalize(currentSetup?.semesterLabel || latestActivity?.semesterLabel || "");
-    const currentSemesterRow = semesterRows.find((row) => normalize(row.semesterLabel) === currentSemesterLabel);
-    const latestSemesterLabel = currentSemesterLabel;
-    const latestAttendanceSemesterLabel = currentSemesterLabel;
-    const latestCtSemesterLabel = currentSemesterLabel;
+    const currentSemesterRow =
+      semesterRows.find((row) => normalizeSemesterLabel(row.semesterLabel) === normalizeSemesterLabel(currentSemesterLabel)) ||
+      semesterRows.slice().sort((left, right) => {
+        const orderDifference = semesterOrder(right.semesterLabel) - semesterOrder(left.semesterLabel);
+        if (orderDifference) return orderDifference;
+        return new Date(right.updatedAt || 0) - new Date(left.updatedAt || 0);
+      })[0] ||
+      null;
+    const resolvedSemesterLabel = normalize(currentSemesterRow?.semesterLabel || currentSemesterLabel);
+    const latestSemesterLabel = resolvedSemesterLabel;
+
+    const setupAttendanceLabel = attendanceRowsAll.find((row) =>
+      normalizeSemesterLabel(row.semesterLabel) === normalizeSemesterLabel(currentSemesterLabel)
+    )?.semesterLabel;
+    const setupCtLabel = ctRowsAll.find((row) =>
+      normalizeSemesterLabel(row.semesterLabel) === normalizeSemesterLabel(currentSemesterLabel)
+    )?.semesterLabel;
+    const latestAttendanceSemesterLabel = normalize(
+      setupAttendanceLabel || attendanceRowsAll[0]?.semesterLabel || currentSemesterLabel
+    );
+    const latestCtSemesterLabel = normalize(
+      setupCtLabel || ctRowsAll[0]?.semesterLabel || currentSemesterLabel
+    );
     const currentSemesterCgpa = currentSemesterRow ? Number(currentSemesterRow.cgpa || 0) : 0;
     const overallCgpa = semesterItems.length
       ? Number((semesterItems.reduce((sum, item) => sum + Number(item.cgpa || 0), 0) / semesterItems.length).toFixed(2))
       : 0;
 
     const attendanceRows = latestAttendanceSemesterLabel
-      ? attendanceRowsAll.filter((row) => normalize(row.semesterLabel) === normalize(latestAttendanceSemesterLabel))
+      ? attendanceRowsAll.filter((row) => normalizeSemesterLabel(row.semesterLabel) === normalizeSemesterLabel(latestAttendanceSemesterLabel))
       : attendanceRowsAll;
-    const attendanceItems = attendanceRows.map((row) => ({
-      courseCode: row.courseId ? row.courseId.code : "",
-      courseName: row.courseId ? row.courseId.name : "Course",
-      percentage: Number(row.percentage || 0),
-      predictedMark: Number(row.predictedMark || 0),
-      risk: row.risk || "watch",
+    const attendanceItems = await Promise.all(attendanceRows.map(async (row) => {
+      const totalClasses = await TeacherAttendanceSession.countDocuments({
+        courseId: row.courseId?._id,
+        ...(row.section ? { section: row.section } : {}),
+        ...(row.batch ? { batch: normalizeBatchValue(row.batch) } : {}),
+      });
+      let classStates = Array.isArray(row.classStates) ? row.classStates.slice() : [];
+      if (totalClasses > classStates.length) {
+        classStates = [
+          ...Array(totalClasses - classStates.length).fill("-"),
+          ...classStates,
+        ];
+      } else if (totalClasses > 0 && classStates.length > totalClasses) {
+        classStates = classStates.slice(-totalClasses);
+      }
+      const present = classStates.filter((state) => state === "P").length;
+      const percentage = totalClasses
+        ? Math.round((present / totalClasses) * 100)
+        : Number(row.percentage || 0);
+      const held = classStates.filter((state) => state === "P" || state === "A").length;
+      const predictedMark = getAttendanceMark(
+        percentage,
+        row.courseId?.credit || 0,
+        row.courseId?.courseType || "theory",
+      );
+      return {
+        courseCode: row.courseId ? row.courseId.code : "",
+        courseName: row.courseId ? row.courseId.name : "Course",
+        percentage,
+        predictedMark,
+        risk: getAttendanceRisk(percentage, totalClasses || held),
+      };
     }));
 
     const ctRows = latestCtSemesterLabel
-      ? ctRowsAll.filter((row) => normalize(row.semesterLabel) === normalize(latestCtSemesterLabel))
+      ? ctRowsAll.filter((row) => normalizeSemesterLabel(row.semesterLabel) === normalizeSemesterLabel(latestCtSemesterLabel))
       : ctRowsAll;
-    let ctItems = ctRows.map((row) => ({
-      courseCode: row.courseId ? row.courseId.code : "",
-      courseName: row.courseId ? row.courseId.name : "Course",
-      total: Number(row.total || 0),
-      maxMarks: Number(row.maxMarks || 0),
-      performance: row.performance || "average",
-    }));
+    let ctItems = ctRows.map((row) => {
+      const ctValues = [row.ct1, row.ct2, row.ct3, row.ct4, row.ct5]
+        .map((value) => Number(value || 0))
+        .filter((value) => value > 0);
+      const occurredTotal = ctValues.reduce((sum, value) => sum + value, 0);
+      return {
+        courseCode: row.courseId ? row.courseId.code : "",
+        courseName: row.courseId ? row.courseId.name : "Course",
+        total: Number(row.total || 0),
+        maxMarks: Number(row.maxMarks || 0),
+        occurredCtCount: ctValues.length,
+        occurredPercent: ctValues.length
+          ? Number(((occurredTotal / (20 * ctValues.length)) * 100).toFixed(1))
+          : 0,
+        performance: ctValues.length
+          ? getCtPerformance(occurredTotal, row.maxMarks, ctValues.length)
+          : "average",
+      };
+    });
 
     // If no CT rows are stored yet, still show course-wise CT report skeleton for advisor.
     if (!ctItems.length && latestCtSemesterLabel) {
       const semesterCourses = await StudentCourse.find({
         studentId: targetStudent._id,
-        semesterLabel: latestCtSemesterLabel,
         status: "active",
       }).populate("courseId");
 
       ctItems = semesterCourses
+        .filter((item) =>
+          normalizeSemesterLabel(item.semesterLabel) === normalizeSemesterLabel(latestCtSemesterLabel)
+        )
         .map((item) => item.courseId)
         .filter(Boolean)
         .map((course) => {
@@ -1704,6 +1808,8 @@ const getAdvisorStudentReport = async (req, res) => {
             courseName: course.name || "Course",
             total: 0,
             maxMarks: Number(policy.maxMarks || 0),
+            occurredCtCount: 0,
+            occurredPercent: 0,
             performance: "average",
           };
         });
@@ -1713,11 +1819,7 @@ const getAdvisorStudentReport = async (req, res) => {
       ? Number((attendanceItems.reduce((sum, item) => sum + Number(item.percentage || 0), 0) / attendanceItems.length).toFixed(1))
       : 0;
     const avgCtPercent = ctItems.length
-      ? Number((ctItems.reduce((sum, item) => {
-        var maxMarks = Number(item.maxMarks || 0);
-        if (!maxMarks) return sum;
-        return sum + (Number(item.total || 0) / maxMarks) * 100;
-      }, 0) / ctItems.length).toFixed(1))
+      ? Number((ctItems.reduce((sum, item) => sum + Number(item.occurredPercent || 0), 0) / ctItems.length).toFixed(1))
       : 0;
 
     const assignmentQuery = { status: "assigned" };
@@ -1824,7 +1926,8 @@ const getAdvisorStudentReport = async (req, res) => {
     if (overallCgpa < 3) {
       suggestion = "Overall CGPA is below target. Prioritize weak courses and schedule advisor follow-up.";
     } else if (weakAttendanceCourses.length && weakCtCourses.length) {
-      suggestion = `Attendance and CT both need attention in ${weakAttendanceCourses.concat(weakCtCourses).slice(0, 3).join(", ")}.`;
+      const weakCourses = Array.from(new Set([...weakAttendanceCourses, ...weakCtCourses])).slice(0, 3);
+      suggestion = `Attendance and CT both need attention in ${weakCourses.join(", ")}.`;
     } else if (weakAttendanceCourses.length) {
       suggestion = `Improve attendance consistency in ${weakAttendanceCourses.join(", ")} to protect marks.`;
     } else if (weakCtCourses.length) {
@@ -1968,9 +2071,12 @@ const getAdvisorPerformanceWatchlist = async (req, res) => {
     const ctAvgByStudentSemester = new Map();
     ctRows.forEach((row) => {
       const key = String(row.studentId) + "::" + String(row.semesterLabel || "");
-      const maxMarks = Number(row.maxMarks || 0);
-      if (!maxMarks) return;
-      const percentage = (Number(row.total || 0) / maxMarks) * 100;
+      const occurredValues = [row.ct1, row.ct2, row.ct3, row.ct4, row.ct5]
+        .map((value) => Number(value || 0))
+        .filter((value) => value > 0);
+      if (!occurredValues.length) return;
+      const occurredTotal = occurredValues.reduce((sum, value) => sum + value, 0);
+      const percentage = (occurredTotal / (20 * occurredValues.length)) * 100;
       const current = ctAvgByStudentSemester.get(key) || { sum: 0, count: 0 };
       current.sum += percentage;
       current.count += 1;
@@ -2601,6 +2707,11 @@ const saveTeacherAttendanceSession = async (req, res) => {
         message: "Attendance for this course, section, and date has already been saved.",
       });
     }
+    const previousSessionCount = await TeacherAttendanceSession.countDocuments({
+      courseId: course._id,
+      teacherId: ctx.teacher._id,
+      section,
+    });
 
     const session = await TeacherAttendanceSession.create({
       courseId: course._id,
@@ -2628,6 +2739,11 @@ const saveTeacherAttendanceSession = async (req, res) => {
         const classStates = attendanceRow && Array.isArray(attendanceRow.classStates)
           ? attendanceRow.classStates.slice()
           : [];
+        if (classStates.length < previousSessionCount) {
+          classStates.unshift(
+            ...Array(previousSessionCount - classStates.length).fill("-")
+          );
+        }
         classStates.push(row.status);
 
         const present = classStates.filter((state) => state === "P").length;
@@ -2831,6 +2947,8 @@ const getTeacherStudentResults = async (req, res) => {
         .map((value) => Number(value || 0))
         .slice(0, ctPolicy.totalCt);
       const ctTotal = ct.slice().sort((left, right) => right - left).slice(0, ctPolicy.bestCount).reduce((sum, value) => sum + value, 0);
+      const occurredCtValues = ct.filter((value) => value > 0);
+      const occurredCtTotal = occurredCtValues.reduce((sum, value) => sum + value, 0);
 
       return {
         rollId: student.rollId,
@@ -2849,7 +2967,9 @@ const getTeacherStudentResults = async (req, res) => {
           marks: ct,
           total: ctTotal,
           maxMarks: ctPolicy.maxMarks,
-          performance: ctRow ? getCtPerformance(ctTotal, ctPolicy.maxMarks) : "not recorded",
+          performance: ctRow
+            ? getCtPerformance(occurredCtTotal, ctPolicy.maxMarks, occurredCtValues.length)
+            : "not recorded",
         },
       };
     });
@@ -2942,9 +3062,15 @@ const saveTeacherCtMarksBySection = async (req, res) => {
         values[ctNumber - 1] = clamp(submitted.marks, 0, 20);
 
         const activeValues = values.slice(0, policy.totalCt);
+        const occurredValues = activeValues.filter((value) => value > 0);
         const sorted = activeValues.slice().sort((a, b) => b - a);
         const total = sorted.slice(0, policy.bestCount).reduce((sum, value) => sum + value, 0);
-        const performance = getCtPerformance(total, policy.maxMarks);
+        const occurredTotal = occurredValues.reduce((sum, value) => sum + value, 0);
+        const performance = getCtPerformance(
+          occurredTotal,
+          policy.maxMarks,
+          occurredValues.length,
+        );
 
         const updated = await CtMark.findOneAndUpdate(
           { studentId: studentRef, courseId: course._id, semesterLabel },
@@ -3025,6 +3151,10 @@ const getGroundedChat = async (req, res) => {
       ctMarks: [],
       cgpa: [],
       notices: [],
+      teachers: [],
+      teacherCourses: [],
+      studentAttendance: [],
+      predictions: [],
       counts: { users: 0, students: 0, teachers: 0, admins: 0, courses: 0 },
     };
 
@@ -3037,9 +3167,9 @@ const getGroundedChat = async (req, res) => {
       ]);
       context.profile.studentId = ctx.student.studentId;
       context.profile.batch = ctx.student.batch;
-      context.courses = courseRows.map((row) => ({ code: row.courseId?.code, name: row.courseId?.name, batch: row.courseId?.batch, credit: row.courseId?.credit, courseType: row.courseId?.courseType, semesterLabel: row.semesterLabel }));
+      context.courses = courseRows.map((row) => ({ code: row.courseId?.code, name: row.courseId?.name, batch: row.courseId?.batch, credit: row.courseId?.credit, courseType: row.courseId?.courseType, totalClasses: row.courseId?.totalClasses, semesterLabel: row.semesterLabel }));
       context.attendance = attendanceRows.map((row) => ({ courseCode: row.courseId?.code, semesterLabel: row.semesterLabel, percentage: row.percentage, attended: row.attended, classesHeld: row.classesHeld }));
-      context.ctMarks = ctRows.map((row) => ({ courseCode: row.courseId?.code, semesterLabel: row.semesterLabel, total: row.total, maxMarks: row.maxMarks, performance: row.performance }));
+      context.ctMarks = ctRows.map((row) => ({ courseCode: row.courseId?.code, semesterLabel: row.semesterLabel, ct1: row.ct1, ct2: row.ct2, ct3: row.ct3, ct4: row.ct4, totalCt: row.totalCt, total: row.total, maxMarks: row.maxMarks, performance: row.performance }));
       context.cgpa = cgpaRows;
       const attendanceByCourse = new Map(context.attendance.map((item) => [`${item.courseCode}__${item.semesterLabel}`, item]));
       const ctByCourse = new Map(context.ctMarks.map((item) => [`${item.courseCode}__${item.semesterLabel}`, item]));
@@ -3051,30 +3181,101 @@ const getGroundedChat = async (req, res) => {
           ctMarks: ctByCourse.get(key) || null,
         };
       });
+      context.predictions = context.coursePerformance.map((course) => {
+        const attendanceRecord = course.attendance;
+        const ctRecord = course.ctMarks;
+        const ctScores = ctRecord
+          ? [ctRecord.ct1, ctRecord.ct2, ctRecord.ct3, ctRecord.ct4]
+            .slice(0, Number(ctRecord.totalCt || 4))
+            .filter((score) => typeof score === "number" && score > 0)
+          : [];
+        return analyzeCourseFeasibility({
+          course: {
+            code: course.code,
+            name: course.name,
+            credit: course.credit,
+            teacherName: course.teacherName,
+            totalClasses: Number(course.totalClasses || 39),
+          },
+          ctScores,
+          totalCt: 4,
+          attended: Number(attendanceRecord?.attended || 0),
+          classesHeld: Number(attendanceRecord?.classesHeld || 0),
+          totalClasses: Number(course.totalClasses || 39),
+        });
+      });
     } else if (role === "teacher" && ctx.teacher) {
-      const [courses, attendance, ctMarks] = await Promise.all([
-        Course.find({ teacherId: ctx.teacher._id }).select("code name batch semesterLabel").limit(100).lean(),
-        Attendance.find({ teacherId: ctx.teacher._id }).select("courseId batch semesterLabel percentage").limit(100).lean(),
-        CtMark.find({ teacherId: ctx.teacher._id }).select("courseId batch semesterLabel total maxMarks performance").limit(100).lean(),
+      const courses = await Course.find({ teacherId: ctx.teacher._id }).select("code name batch semesterLabel").limit(100).lean();
+      const courseIds = courses.map((course) => course._id);
+      const [attendance, ctMarks, enrollments] = await Promise.all([
+        Attendance.find({ courseId: { $in: courseIds } }).select("studentId courseId batch section semesterLabel percentage attended classesHeld").limit(1000).lean(),
+        CtMark.find({ courseId: { $in: courseIds } }).select("courseId batch semesterLabel total maxMarks performance").limit(1000).lean(),
+        StudentCourse.find({ courseId: { $in: courseIds } })
+          .populate({ path: "studentId", select: "studentId batch section userId", populate: { path: "userId", select: "name" } })
+          .populate("courseId", "code name batch semesterLabel")
+          .limit(2000)
+          .lean(),
       ]);
       context.profile.teacherId = ctx.teacher.teacherId;
       context.profile.department = ctx.teacher.department;
       context.courses = courses;
       context.attendance = attendance;
       context.ctMarks = ctMarks;
+      const attendanceByStudentCourse = new Map(attendance.map((row) => [`${row.studentId}__${row.courseId}__${row.semesterLabel}`, row]));
+      context.studentAttendance = enrollments
+        .filter((row) => row.studentId && row.courseId)
+        .map((row) => {
+          const attendanceRow = attendanceByStudentCourse.get(`${row.studentId._id}__${row.courseId._id}__${row.semesterLabel}`);
+          const percentage = attendanceRow?.percentage != null
+            ? Number(attendanceRow.percentage)
+            : attendanceRow?.classesHeld > 0
+              ? Number(((attendanceRow.attended / attendanceRow.classesHeld) * 100).toFixed(1))
+              : null;
+          return {
+            studentName: row.studentId.userId?.name || row.studentId.studentId,
+            studentId: row.studentId.studentId,
+            courseCode: row.courseId.code,
+            courseName: row.courseId.name,
+            batch: row.batch || row.studentId.batch,
+            section: row.studentId.section,
+            semesterLabel: row.semesterLabel,
+            percentage,
+            attended: attendanceRow?.attended ?? null,
+            classesHeld: attendanceRow?.classesHeld ?? null,
+          };
+        });
     } else if (role === "advisor" && ctx.advisor) {
       const assignments = await AdvisorAssignment.find({ advisorId: ctx.advisor._id, status: "assigned" }).select("batch startSerial endSerial advisorName").limit(100).lean();
       context.profile.department = ctx.advisor.department;
       context.assignments = assignments;
     } else if (role === "admin") {
-      const [users, students, teachers, admins, courses] = await Promise.all([
+      const [users, students, teachers, admins, courses, teacherProfiles, teacherCourses] = await Promise.all([
         User.countDocuments(), Student.countDocuments(), Teacher.countDocuments(), Admin.countDocuments(), Course.countDocuments(),
+        Teacher.find({}).populate("userId", "name email").select("userId teacherId department isAdvisor batchFocus").limit(200).lean(),
+        Course.find({}).populate({ path: "teacherId", select: "teacherId userId", populate: { path: "userId", select: "name" } }).select("code name semesterLabel teacherId teacherName").limit(500).lean(),
       ]);
       context.counts = { users, students, teachers, admins, courses };
+      context.teachers = teacherProfiles.map((teacher) => ({
+        name: teacher.userId?.name || "Teacher",
+        teacherId: teacher.teacherId,
+        department: teacher.department || "",
+        isAdvisor: Boolean(teacher.isAdvisor),
+        batchFocus: teacher.batchFocus || "",
+      }));
+      context.teacherCourses = teacherCourses.map((course) => ({
+        teacherId: course.teacherId?.teacherId || "",
+        teacherName: course.teacherId?.userId?.name || course.teacherName || "Unassigned",
+        code: course.code,
+        name: course.name,
+        semesterLabel: course.semesterLabel || "",
+      }));
     }
 
     const noticeTargets = role === "student" ? ["students", "students_advisors"] : role === "advisor" ? ["advisors", "students_advisors"] : ["students", "advisors", "students_advisors"];
     context.notices = await Notice.find({ target: { $in: noticeTargets }, status: { $ne: "archived" } }).select("title priority publishedAt batch courseId").sort({ publishedAt: -1 }).limit(30).lean();
+    context.conversation = Array.isArray(req.body.history)
+      ? req.body.history.slice(-8).filter((item) => item && (item.role === "user" || item.role === "assistant") && typeof item.text === "string").map((item) => ({ role: item.role, text: item.text.slice(0, 1000) }))
+      : [];
 
     const result = await generateGroundedChatAnswer(question, context);
     return res.status(200).json({ success: true, data: { question, ...result } });
